@@ -1,6 +1,8 @@
 import os
 import json
 import logging
+import threading
+from flask import Flask
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -20,10 +22,9 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.INFO)
 
-# Lấy thông tin cấu hình từ Biến môi trường (Environment Variables)
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "TienDat_Mmo")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "6900793565")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "DANG_KY_TOKEN_VAO_BIEN_MOI_TRUONG")
+ADMIN_USERNAME = "@TienDat_Mmo"
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 BANK_INFO = {
     "bank_name": "MBBank",
@@ -294,6 +295,18 @@ SERVICES = {
 }
 
 INPUT_LINK, INPUT_QUANTITY, INPUT_TOPUP_AMOUNT = range(3)
+
+# ----------------- FLASK SERVER CHO RENDER FREE -----------------
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def index():
+    return "Bot is running!", 200
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    flask_app.run(host="0.0.0.0", port=port)
+# --------------------------------------------------------------
 
 def get_stock_count(cat_id):
     file_path = f"data/{cat_id}.txt"
@@ -1025,4 +1038,9 @@ def main():
     application.run_polling()
 
 if __name__ == "__main__":
+    # Khởi chạy Flask Server ở background thread để Render health check không bị timeout
+    server_thread = threading.Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+
+    # Chạy Telegram Bot chính
     main()
