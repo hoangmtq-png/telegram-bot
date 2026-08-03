@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (SMART SEARCH & FULL OPTIMIZED)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (INTENT ROUTING & SMART SEARCH)
 # ====================================================================================================
 
 import os
@@ -121,8 +121,7 @@ def enterprise_bootstrap_user(user_id: int) -> None:
                 "role": "system",
                 "content": (
                     "Bạn là Heo Đất AI Pro, trợ lý thông minh cao cấp kết hợp quản lý tài chính doanh nghiệp. "
-                    "Khi người dùng hỏi các thông tin thực tế, hệ thống sẽ cung cấp dữ liệu tra cứu từ internet, "
-                    "hãy tổng hợp chúng thành câu trả lời sắc sảo, chính xác và mạch lạc."
+                    "Hãy trò chuyện tự nhiên, thân thiện và chính xác với người dùng."
                 )
             }
         ]
@@ -241,7 +240,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
         enterprise_message_tracker[user_id] = []
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
-        m = await query.message.reply_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI kèm Web Search. Hãy hỏi bất cứ thông tin gì!", reply_markup=InlineKeyboardMarkup(kb))
+        m = await query.message.reply_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro. Hãy trò chuyện hoặc tra cứu thông tin với tôi!", reply_markup=InlineKeyboardMarkup(kb))
         enterprise_message_tracker[user_id].append(m.message_id)
         try:
             await query.message.delete()
@@ -291,7 +290,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ ĐIỀU PHỐI TIN NHẮN & TÍCH HỢP WEB SEARCH + LLM
+# BỘ ĐIỀU PHỐI TIN NHẮN & ĐỊNH TUYẾN Ý ĐỊNH THÔNG MINH
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -338,19 +337,20 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         thinking = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI Pro đang soạn...")
         enterprise_message_tracker[user_id].append(thinking.message_id)
 
-        # 1. AI tinh chỉnh từ khóa thông minh
+        # 1. Phân loại ý định: Chỉ tìm kiếm khi thực sự cần thiết (kiến thức, bài hát, tin tức, giá cả...)
+        need_search = False
         search_query = raw_text
+        
         if groq_client:
             try:
-                keyword_res = groq_client.chat.completions.create(
+                intent_res = groq_client.chat.completions.create(
                     messages=[
                         {
-                            "role": "system", 
+                            "role": "system",
                             "content": (
-                                "Bạn là chuyên gia phân tích và tối ưu từ khóa tìm kiếm Google. "
-                                "Nhiệm vụ của bạn là trích xuất chính xác tên bài hát, ca sĩ, hoặc từ khóa cốt lõi từ câu hỏi của người dùng. "
-                                "Nếu người dùng hỏi về bài hát/lời bài hát, hãy giữ lại tên bài hoặc các câu hát chính kèm từ khóa 'bài hát' hoặc 'lyrics'. "
-                                "Chỉ trả về đúng từ khóa tìm kiếm tối ưu nhất, tuyệt đối không kèm lời giải thích hay dấu ngoặc."
+                                "Bạn là bộ định tuyến ý định. Hãy phân tích tin nhắn của người dùng. "
+                                "Nếu tin nhắn yêu cầu tìm kiếm thông tin thực tế, kiến thức mới, thời sự, giá cả, hoặc tìm tên bài hát/lời bài hát, hãy trả về 'SEARCH: <từ khóa tìm kiếm>'. "
+                                "Nếu đó là lời chào hỏi, trò chuyện thông thường, xã giao, hoặc tự luận cá nhân không cần tra cứu mạng, hãy trả về 'CHAT'."
                             )
                         },
                         {"role": "user", "content": raw_text}
@@ -358,21 +358,27 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                     model="llama-3.3-70b-versatile",
                     temperature=0.1
                 )
-                search_query = keyword_res.choices[0].message.content.strip()
+                decision = intent_res.choices[0].message.content.strip()
+                if decision.startswith("SEARCH:"):
+                    need_search = True
+                    search_query = decision.replace("SEARCH:", "").strip()
             except Exception:
                 pass
 
-        # 2. Thực hiện tìm kiếm web thông minh
-        search_data = enterprise_search_web(search_query)
+        # 2. Thực hiện tìm kiếm web nếu ý định yêu cầu
+        search_data = ""
+        if need_search:
+            search_data = enterprise_search_web(search_query)
 
-        # 3. Tổng hợp trả lời
-        prompt_with_context = (
-            f"Câu hỏi gốc của người dùng: '{raw_text}'\n"
-            f"Từ khóa tìm kiếm tối ưu: '{search_query}'\n"
-            f"Dữ liệu tra cứu trực tuyến từ internet:\n"
-            f"{search_data}\n\n"
-            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi của người dùng một cách chính xác, tự nhiên, đầy đủ thông tin (nếu là bài hát hãy nêu tên bài, ca sĩ, tác giả hoặc lời liên quan nếu có)."
-        )
+        # 3. Tổng hợp prompt gửi LLM
+        if need_search and search_data and "Không tìm thấy kết quả" not in search_data:
+            prompt_with_context = (
+                f"Câu hỏi của người dùng: '{raw_text}'\n"
+                f"Dữ liệu tra cứu từ internet:\n{search_data}\n\n"
+                f"Yêu cầu: Hãy tổng hợp thông tin trên để trả lời câu hỏi một cách chính xác, tự nhiên."
+            )
+        else:
+            prompt_with_context = raw_text
 
         reply_content = raw_text
         if groq_client:
@@ -391,7 +397,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
             except Exception as e:
                 logger.error(f"Groq API Error: {e}")
-                reply_content = f"Dựa trên kết quả tra cứu cho từ khóa '{search_query}':\n{search_data}"
+                reply_content = "Hệ thống đang gặp sự cố kết nối AI."
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
@@ -441,7 +447,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Smart Search Enabled)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Smart Intent Routing)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -449,7 +455,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG KÈM TÍNH NĂNG TRA CỨU INTERNET THÔNG MINH!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI HỆ THỐNG PHÂN LOẠI TÌM KIẾM THÔNG MINH!")
     application.run_polling()
 
 
