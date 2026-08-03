@@ -155,12 +155,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
             "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình giải đáp mọi thắc mắc hoặc trò chuyện.\n\n"
-            "💡 *Mẹo: Gõ 'đóng khung chat' hoặc bấm nút bên dưới để đóng và dọn sạch tin nhắn.*",
+            "💡 *Mẹo: Gõ từ khóa đóng chat hoặc bấm nút bên dưới để đóng, dọn sạch tin nhắn và hiện lại menu.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
         user_all_chat_msg_ids[user_id].append(intro_msg.message_id)
         
+        # Lưu ID của cái menu chính lúc bấm vào AI để lát nữa đóng chat sẽ xóa nó đi
+        user_last_menu_id[user_id] = query.message.message_id
+
         try:
             await query.message.delete()
         except Exception:
@@ -253,25 +256,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif data == "back_home":
-        # Gửi câu tạm biệt ngọt ngào trước khi xóa và về menu
-        try:
-            bye_msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
-                parse_mode="Markdown"
-            )
-            # Tạm dừng 1.5 giây để người dùng kịp đọc câu tạm biệt
-            time.sleep(0.5)
-            # Xóa luôn cả tin nhắn tạm biệt này để khung chat hoàn toàn sạch sẽ
-            await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
-        except Exception:
-            pass
-
-        user_state.pop(user_id, None)
-        if user_id in user_chat_histories:
-            user_chat_histories[user_id] = []
-        
-        # Xóa toàn bộ lịch sử tin nhắn trong khung chat AI
+        # 1. Xóa toàn bộ lịch sử tin nhắn trong khung chat AI (cả câu hỏi của bạn lẫn câu trả lời của AI)
         if user_id in user_all_chat_msg_ids:
             for msg_id in user_all_chat_msg_ids[user_id]:
                 try:
@@ -288,11 +273,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             user_ai_messages[user_id] = []
 
+        # 2. Xóa cái menu cũ/khung chat hiện tại đang chứa nút bấm
         try:
             await query.message.delete()
         except Exception:
             pass
-        
+
+        # 3. Xóa menu chính cũ nếu còn lưu lại trong danh sách
+        if user_id in user_last_menu_id:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=user_last_menu_id[user_id])
+            except Exception:
+                pass
+
+        # 4. Reset trạng thái và lịch sử hội thoại AI
+        user_state.pop(user_id, None)
+        if user_id in user_chat_histories:
+            user_chat_histories[user_id] = []
+
+        # 5. Gửi 1 tin nhắn tạm biệt duy nhất, sạch sẽ, rồi xóa luôn tin nhắn tạm biệt này sau 1 giây
+        try:
+            bye_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
+                parse_mode="Markdown"
+            )
+            time.sleep(0.5)
+            await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
+        except Exception:
+            pass
+
+        # 6. Gửi menu mới hoàn toàn sạch sẽ ra khung chat
         text, reply_markup = get_main_menu_content(user_id)
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
         user_last_menu_id[user_id] = msg.message_id
@@ -309,24 +320,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        close_keywords = ["đóng khung chat", "đóng chat", "thoát ai", "về menu", "đóng lại"]
+        # Từ khóa đóng chat: Bắt mọi biến thể người dùng gõ
+        close_keywords = [
+            "đóng khung chat", "đóng chat", "thoát ai", "về menu", "đóng lại", 
+            "thôi", "tạm biệt", "bye", "đóng", "thoát", "dừng", "cảm ơn"
+        ]
+        
+        # Nếu người dùng gõ từ khóa đóng chat
         if any(keyword in text.lower() for keyword in close_keywords):
+            # Xóa tin nhắn "đóng chat" của người dùng gửi
             try:
                 await update.message.delete()
             except Exception:
                 pass
 
-            # Gửi câu tạm biệt ngọt ngào trước khi xóa toàn bộ khung chat AI
-            try:
-                bye_msg = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
-                    parse_mode="Markdown"
-                )
-                await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
-            except Exception:
-                pass
-
+            # Xóa toàn bộ lịch sử tin nhắn trong khung chat AI (cả câu hỏi lẫn câu trả lời cũ)
             if user_id in user_all_chat_msg_ids:
                 for msg_id in user_all_chat_msg_ids[user_id]:
                     try:
@@ -335,21 +343,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         pass
                 user_all_chat_msg_ids[user_id] = []
 
-            user_state.pop(user_id, None)
-            if user_id in user_chat_histories:
-                user_chat_histories[user_id] = []
-
+            # Xóa menu cũ / tin nhắn cũ
             if user_id in user_last_menu_id:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=user_last_menu_id[user_id])
                 except Exception:
                     pass
 
+            # Reset trạng thái AI
+            user_state.pop(user_id, None)
+            if user_id in user_chat_histories:
+                user_chat_histories[user_id] = []
+
+            # Gửi tin nhắn tạm biệt chớp nhoáng rồi xóa luôn để khung chat không bị rác
+            try:
+                bye_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
+                    parse_mode="Markdown"
+                )
+                time.sleep(0.5)
+                await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
+            except Exception:
+                pass
+
+            # Hiện menu chính hoàn toàn mới, sạch sẽ ở dưới cùng
             text_menu, reply_markup = get_main_menu_content(user_id)
             msg = await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode="Markdown")
             user_last_menu_id[user_id] = msg.message_id
             return
 
+        # Ghi nhận tin nhắn chat của người dùng vào danh sách để lát nữa xóa sạch
         try:
             user_msg_id = update.message.message_id
             if user_id not in user_all_chat_msg_ids:
@@ -371,7 +395,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt_system = (
             f"Hôm nay là {current_weekday}, {current_time_str}. "
             "Bạn tên là Heo Đất AI, trợ lý thông minh đa năng. "
-            "Hãy trả lời thông minh, thân thiện, ngọt ngào."
+            "Hãy trả lời thông minh, thân thiện, ngọt ngào và đúng trọng tâm."
         )
 
         if user_id not in user_chat_histories:
