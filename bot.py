@@ -155,7 +155,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp! Mình có thể chat, tìm kiếm thông tin, và **vẽ ảnh trực tiếp** theo yêu cầu của bạn (Ví dụ: *'Vẽ ảnh mèo cute', 'Tạo bức ảnh phong cảnh anime'*).\n\n"
+            "Mình là Heo Đất AI siêu cấp! Mình có thể chat, tìm kiếm thông tin, và **vẽ ảnh trực tiếp** khi bạn dùng đúng từ khóa (`vẽ ảnh`, `vẽ một tấm ảnh`, `kiếm ảnh`).\n\n"
             "💡 *Mẹo: Gõ từ khóa đóng chat hoặc bấm nút bên dưới để đóng, dọn sạch tin nhắn và hiện lại menu.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -368,19 +368,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        # KIỂM TRA TỪ KHÓA TẠO ẢNH (ĐÃ ĐƯỢC MỞ RỘNG TOÀN DIỆN ĐỂ KHÔNG BỊ SÓT)
-        image_keywords = [
-            "vẽ", "gửi ảnh", "tạo ảnh", "làm ảnh", "chụp ảnh", "hãy vẽ", 
-            "kiếm ảnh", "cho ảnh", "xin ảnh", "kiểu ảnh", "bức ảnh", "tấm ảnh", "ảnh"
+        # CHỈ KÍCH HOẠT TẠO ẢNH KHI CÓ ĐÚNG CÁC CỤM TỪ YÊU CẦU
+        image_action_keywords = [
+            "vẽ một tấm ảnh", 
+            "vẽ ảnh", 
+            "kiếm ảnh"
         ]
-        is_image_request = any(keyword in text.lower() for keyword in image_keywords)
+        is_image_request = any(keyword in text.lower() for keyword in image_action_keywords)
 
         if is_image_request:
             thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang phác thảo và vẽ ảnh theo yêu cầu của bạn...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
-                # Dùng LLM để dịch / tối ưu câu lệnh vẽ sang tiếng Anh cho ảnh đẹp nhất
                 prompt_trans = groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
@@ -393,7 +393,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 img_prompt = text
 
-            # Tạo URL ảnh từ Pollinations AI (Miễn phí, không cần API Key, tốc độ cực nhanh)
             encoded_prompt = urllib.parse.quote(img_prompt)
             image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
 
