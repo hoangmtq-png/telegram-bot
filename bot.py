@@ -46,6 +46,8 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 user_data_db = {}
 user_state = {}  
 user_chat_histories = {} 
+# Lưu danh sách ID các tin nhắn AI trả lời để có thể dọn dẹp sạch sẽ khi cần
+user_ai_messages = {}
 
 # === PHẦN 3: HÀM TẠO GIAO DIỆN MENU CHÍNH ===
 def get_main_menu_content(user_id):
@@ -170,9 +172,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
         
-        # Sửa lỗi: Cập nhật trực tiếp khung tin nhắn hiện tại thành Menu chính thay vì cố xóa
+        # Xóa sạch toàn bộ các tin nhắn phản hồi của AI trước đó để khung chat cực kỳ sạch sẽ
+        if user_id in user_ai_messages:
+            for msg_id in user_ai_messages[user_id]:
+                try:
+                    await context.bot.delete_message(chat_id=query.message.chat_id, message_id=msg_id)
+                except Exception:
+                    pass
+            user_ai_messages[user_id] = []
+
+        # Xóa luôn tin nhắn giao diện AI hiện tại và gửi Menu mới tinh ở đáy khung chat
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        
         text, reply_markup = get_main_menu_content(user_id)
-        await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
 
 # === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,6 +203,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "CHAT_AI":
         thinking_msg = await update.message.reply_text("🐷 `Heo Đất AI đang trả lời...`")
         
+        # Lưu ID tin nhắn chờ để có thể dọn dẹp sau này
+        if user_id not in user_ai_messages:
+            user_ai_messages[user_id] = []
+        user_ai_messages[user_id].append(thinking_msg.message_id)
+
         now = datetime.now()
         current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
         days_vn = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
