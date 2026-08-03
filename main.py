@@ -1,11 +1,11 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (RATE LIMIT 429 HANDLER)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (AUTO MODEL FALLBACK & ASYNCIO)
 # ====================================================================================================
 
 import os
 import sys
 import json
-import time
+import asyncio
 import logging
 import hashlib
 from datetime import datetime
@@ -57,7 +57,8 @@ except Exception as e:
     logger.error(f"Khởi tạo Groq Client thất bại: {e}")
     groq_client = None
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# Danh sách model ưu tiên: Tự động chuyển xuống model nhẹ hơn nếu hết token (429)
+GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -292,7 +293,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ ĐIỀU PHỐI TIN NHẮN & ĐỊNH TUYẾN Ý ĐỊNH THÔNG MINH (CÓ TỰ ĐỘNG THỬ LẠI KHI DÍNH 429)
+# BỘ ĐIỀU PHỐI TIN NHẮN & ĐỊNH TUYẾN Ý ĐỊNH THÔNG MINH (AUTO FALLBACK MODEL)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -339,38 +340,44 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         thinking = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI Pro đang soạn...")
         enterprise_message_tracker[user_id].append(thinking.message_id)
 
-        # 1. Phân loại ý định với cơ chế Retry khi gặp lỗi 429
+        # 1. Phân loại ý định với cơ chế Fallback qua các model
         need_search = False
         search_query = raw_text
         
         if groq_client:
-            for attempt in range(3):
-                try:
-                    intent_res = groq_client.chat.completions.create(
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Bạn là bộ định tuyến ý định. Hãy phân tích tin nhắn của người dùng. "
-                                    "Nếu tin nhắn yêu cầu tìm kiếm thông tin thực tế, kiến thức mới, thời sự, giá cả, hoặc tìm tên bài hát/lời bài hát, hãy trả về 'SEARCH: <từ khóa tìm kiếm>'. "
-                                    "Nếu đó là lời chào hỏi, trò chuyện thông thường, xã giao, hoặc tự luận cá nhân không cần tra cứu mạng, hãy trả về 'CHAT'."
-                                )
-                            },
-                            {"role": "user", "content": raw_text}
-                        ],
-                        model=GROQ_MODEL,
-                        temperature=0.1
-                    )
-                    decision = intent_res.choices[0].message.content.strip()
-                    if decision.startswith("SEARCH:"):
-                        need_search = True
-                        search_query = decision.replace("SEARCH:", "").strip()
+            for model_name in GROQ_MODELS:
+                intent_success = False
+                for attempt in range(2):
+                    try:
+                        intent_res = groq_client.chat.completions.create(
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "Bạn là bộ định tuyến ý định. Hãy phân tích tin nhắn của người dùng. "
+                                        "Nếu tin nhắn yêu cầu tìm kiếm thông tin thực tế, kiến thức mới, thời sự, giá cả, hoặc tìm tên bài hát/lời bài hát, hãy trả về 'SEARCH: <từ khóa tìm kiếm>'. "
+                                        "Nếu đó là lời chào hỏi, trò chuyện thông thường, xã giao, hoặc tự luận cá nhân không cần tra cứu mạng, hãy trả về 'CHAT'."
+                                    )
+                                },
+                                {"role": "user", "content": raw_text}
+                            ],
+                            model=model_name,
+                            temperature=0.1
+                        )
+                        decision = intent_res.choices[0].message.content.strip()
+                        if decision.startswith("SEARCH:"):
+                            need_search = True
+                            search_query = decision.replace("SEARCH:", "").strip()
+                        intent_success = True
+                        break
+                    except Exception as e:
+                        if "429" in str(e):
+                            break
+                        elif attempt < 1:
+                            await asyncio.sleep(1)
+                            continue
+                if intent_success:
                     break
-                except Exception as e:
-                    if "429" in str(e) and attempt < 2:
-                        time.sleep(3 * (attempt + 1))
-                        continue
-                    logger.error(f"Lỗi phân loại ý định: {e}")
 
         # 2. Thực hiện tìm kiếm web nếu ý định yêu cầu
         search_data = ""
@@ -389,27 +396,37 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
         reply_content = raw_text
         if groq_client:
-            for attempt in range(3):
-                try:
-                    temp_messages = list(enterprise_chat_histories[user_id])
-                    temp_messages.append({"role": "user", "content": prompt_with_context})
-                    
-                    res = groq_client.chat.completions.create(
-                        messages=temp_messages,
-                        model=GROQ_MODEL,
-                        temperature=0.7
-                    )
-                    reply_content = res.choices[0].message.content
-                    
-                    enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
-                    enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
+            success = False
+            for model_name in GROQ_MODELS:
+                if success:
                     break
-                except Exception as e:
-                    if "429" in str(e) and attempt < 2:
-                        time.sleep(4 * (attempt + 1))
-                        continue
-                    logger.error(f"Groq API Error Chi Tiết: {str(e)}")
-                    reply_content = f"⚠️ Lỗi kết nối Groq AI (Đang quá tải, vui lòng thử lại sau ít giây): {str(e)}"
+                for attempt in range(2):
+                    try:
+                        temp_messages = list(enterprise_chat_histories[user_id])
+                        temp_messages.append({"role": "user", "content": prompt_with_context})
+                        
+                        res = groq_client.chat.completions.create(
+                            messages=temp_messages,
+                            model=model_name,
+                            temperature=0.7
+                        )
+                        reply_content = res.choices[0].message.content
+                        
+                        enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
+                        enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
+                        success = True
+                        break
+                    except Exception as e:
+                        if "429" in str(e):
+                            logger.warning(f"Model {model_name} hết hạn mức (429), đang chuyển sang model dự phòng...")
+                            break
+                        elif attempt < 1:
+                            await asyncio.sleep(2)
+                            continue
+                        logger.error(f"Groq API Error với {model_name}: {str(e)}")
+            
+            if not success:
+                reply_content = "⚠️ Tất cả các model của Groq đã chạm giới hạn hạn mức trong ngày (429). Vui lòng đổi API Key mới hoặc chờ reset quota!"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
@@ -483,7 +500,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Rate Limit Handled)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Auto Fallback Ready)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -491,7 +508,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI CƠ CHẾ TỰ ĐỘNG THỬ LẠI KHI QUÁ TẢI!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG HOẠT ĐỘNG ỔN ĐỊNH!")
     application.run_polling()
 
 
