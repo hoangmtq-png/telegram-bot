@@ -1,7 +1,8 @@
-# === TOÀN BỘ CODE HOÀN CHỈNH: BOT HEO ĐẤT AI (GROQ) ===
+# === TOÀN BỘ CODE HOÀN CHỈNH: BOT HEO ĐẤT AI (GROQ + TẠO ẢNH POLLINATIONS AI) ===
 import os
 import time
 import logging
+import urllib.parse
 from datetime import datetime
 from flask import Flask
 from threading import Thread
@@ -154,14 +155,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình giải đáp mọi thắc mắc hoặc trò chuyện.\n\n"
+            "Mình là Heo Đất AI siêu cấp! Mình có thể chat, tìm kiếm thông tin, và **vẽ ảnh trực tiếp** theo yêu cầu của bạn (Ví dụ: *'Vẽ ảnh mèo cute', 'Tạo bức ảnh phong cảnh anime'*).\n\n"
             "💡 *Mẹo: Gõ từ khóa đóng chat hoặc bấm nút bên dưới để đóng, dọn sạch tin nhắn và hiện lại menu.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
         user_all_chat_msg_ids[user_id].append(intro_msg.message_id)
-        
-        # Lưu ID của cái menu chính lúc bấm vào AI để lát nữa đóng chat sẽ xóa nó đi
         user_last_menu_id[user_id] = query.message.message_id
 
         try:
@@ -256,7 +255,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif data == "back_home":
-        # 1. Xóa toàn bộ lịch sử tin nhắn trong khung chat AI (cả câu hỏi của bạn lẫn câu trả lời của AI)
         if user_id in user_all_chat_msg_ids:
             for msg_id in user_all_chat_msg_ids[user_id]:
                 try:
@@ -273,25 +271,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             user_ai_messages[user_id] = []
 
-        # 2. Xóa cái menu cũ/khung chat hiện tại đang chứa nút bấm
         try:
             await query.message.delete()
         except Exception:
             pass
 
-        # 3. Xóa menu chính cũ nếu còn lưu lại trong danh sách
         if user_id in user_last_menu_id:
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=user_last_menu_id[user_id])
             except Exception:
                 pass
 
-        # 4. Reset trạng thái và lịch sử hội thoại AI
         user_state.pop(user_id, None)
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
 
-        # 5. Gửi 1 tin nhắn tạm biệt duy nhất, sạch sẽ, rồi xóa luôn tin nhắn tạm biệt này sau 1 giây
         try:
             bye_msg = await context.bot.send_message(
                 chat_id=chat_id,
@@ -303,12 +297,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        # 6. Gửi menu mới hoàn toàn sạch sẽ ra khung chat
         text, reply_markup = get_main_menu_content(user_id)
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
         user_last_menu_id[user_id] = msg.message_id
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & CÁC TRẠNG THÁI ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN & TÍCH HỢP TẠO ẢNH (POLLINATIONS AI) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -320,21 +313,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        # Từ khóa đóng chat: Bắt mọi biến thể người dùng gõ
         close_keywords = [
             "đóng khung chat", "đóng chat", "thoát ai", "về menu", "đóng lại", 
             "thôi", "tạm biệt", "bye", "đóng", "thoát", "dừng", "cảm ơn"
         ]
         
-        # Nếu người dùng gõ từ khóa đóng chat
         if any(keyword in text.lower() for keyword in close_keywords):
-            # Xóa tin nhắn "đóng chat" của người dùng gửi
             try:
                 await update.message.delete()
             except Exception:
                 pass
 
-            # Xóa toàn bộ lịch sử tin nhắn trong khung chat AI (cả câu hỏi lẫn câu trả lời cũ)
             if user_id in user_all_chat_msg_ids:
                 for msg_id in user_all_chat_msg_ids[user_id]:
                     try:
@@ -343,19 +332,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         pass
                 user_all_chat_msg_ids[user_id] = []
 
-            # Xóa menu cũ / tin nhắn cũ
             if user_id in user_last_menu_id:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=user_last_menu_id[user_id])
                 except Exception:
                     pass
 
-            # Reset trạng thái AI
             user_state.pop(user_id, None)
             if user_id in user_chat_histories:
                 user_chat_histories[user_id] = []
 
-            # Gửi tin nhắn tạm biệt chớp nhoáng rồi xóa luôn để khung chat không bị rác
             try:
                 bye_msg = await context.bot.send_message(
                     chat_id=chat_id,
@@ -367,13 +353,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-            # Hiện menu chính hoàn toàn mới, sạch sẽ ở dưới cùng
             text_menu, reply_markup = get_main_menu_content(user_id)
             msg = await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode="Markdown")
             user_last_menu_id[user_id] = msg.message_id
             return
 
-        # Ghi nhận tin nhắn chat của người dùng vào danh sách để lát nữa xóa sạch
         try:
             user_msg_id = update.message.message_id
             if user_id not in user_all_chat_msg_ids:
@@ -384,6 +368,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        # KIỂM TRA TỪ KHÓA TẠO ẢNH (ĐÃ ĐƯỢC MỞ RỘNG TOÀN DIỆN ĐỂ KHÔNG BỊ SÓT)
+        image_keywords = [
+            "vẽ", "gửi ảnh", "tạo ảnh", "làm ảnh", "chụp ảnh", "hãy vẽ", 
+            "kiếm ảnh", "cho ảnh", "xin ảnh", "kiểu ảnh", "bức ảnh", "tấm ảnh", "ảnh"
+        ]
+        is_image_request = any(keyword in text.lower() for keyword in image_keywords)
+
+        if is_image_request:
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang phác thảo và vẽ ảnh theo yêu cầu của bạn...")
+            user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
+
+            try:
+                # Dùng LLM để dịch / tối ưu câu lệnh vẽ sang tiếng Anh cho ảnh đẹp nhất
+                prompt_trans = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": "You are an AI prompt engineer for image generation. Extract the core subject from the user request and translate/optimize it into a detailed English image prompt. Return ONLY the English prompt, nothing else."},
+                        {"role": "user", "content": text}
+                    ],
+                    max_tokens=100
+                )
+                img_prompt = prompt_trans.choices[0].message.content.strip()
+            except Exception:
+                img_prompt = text
+
+            # Tạo URL ảnh từ Pollinations AI (Miễn phí, không cần API Key, tốc độ cực nhanh)
+            encoded_prompt = urllib.parse.quote(img_prompt)
+            image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+                user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
+            except Exception:
+                pass
+
+            try:
+                photo_msg = await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=image_url,
+                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong bức ảnh theo yêu cầu: *'{text}'* cho bé yêu đây ạ! ❤️✨",
+                    parse_mode="Markdown"
+                )
+                user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
+            except Exception as e:
+                logging.error(f"Lỗi gửi ảnh: {e}")
+                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Ôi bé ơi, hệ thống vẽ ảnh đang bận chút xíu, cậu thử lại sau nha!")
+                user_all_chat_msg_ids[user_id].append(err_msg.message_id)
+            return
+
+        # XỬ LÝ CHAT VĂN BẢN THÔNG THƯỜNG
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
@@ -602,7 +636,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI (Groq) đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI (Groq + Tạo Ảnh) đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
