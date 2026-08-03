@@ -1,4 +1,4 @@
-# === CODE HOÀN CHỈNH: OPENROUTER (GEMMA-7B FREE) + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
+# === CODE CHUẨN XỊN: GOOGLE GEMINI DIRECT + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
 import os
 import time
 import logging
@@ -6,7 +6,6 @@ import urllib.parse
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -16,7 +15,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from openai import OpenAI
+import google.generativeai as genai
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -26,7 +25,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Heo Đất AI (OpenRouter Free) đang hoạt động 24/7!"
+    return "Bot Heo Đất AI (Gemini Direct) đang hoạt động 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -37,18 +36,12 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# === CẤU HÌNH TOKEN & OPENROUTER API KEY ===
+# === CẤU HÌNH TOKEN & GEMINI API KEY ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "THAY_API_KEY_OPENROUTER_VÀO_ĐÂY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "THAY_GEMINI_API_KEY_VÀO_ĐÂY")
 
-# Khởi tạo OpenAI Client trỏ sang OpenRouter
-openai_client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
-
-# Sử dụng model miễn phí đang hoạt động tốt trên OpenRouter
-AI_MODEL = "google/gemma-7b-it:free"
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
 user_data_db = {}
 user_state = {}  
@@ -102,7 +95,7 @@ def get_main_menu_content(user_id):
         ],
         [
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
-            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI (FREE)", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI (GEMINI)", callback_data="chat_ai_mode"),
         ]
     ]
     return text, InlineKeyboardMarkup(keyboard)
@@ -157,7 +150,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🚀🤖 **ĐÃ KÍCH HOẠT HEO ĐẤT AI (OPENROUTER FREE)** 🤖🚀\n\n"
+            "🚀🤖 **ĐÃ KÍCH HOẠT HEO ĐẤT AI (GEMINI)** 🤖🚀\n\n"
             "Mình đã sẵn sàng hỗ trợ bạn tra cứu, trò chuyện, tìm nhạc và vẽ ảnh hoàn toàn miễn phí!\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -283,8 +276,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         user_state.pop(user_id, None)
-        if user_id in user_chat_histories:
-            user_chat_histories[user_id] = []
+        user_chat_histories.pop(user_id, None)
 
         text, reply_markup = get_main_menu_content(user_id)
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
@@ -394,29 +386,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. CHAT QUA OPENROUTER
+        # 3. CHAT QUA GEMINI API TRỰC TIẾP
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Đang suy nghĩ...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
-        if user_id not in user_chat_histories:
-            user_chat_histories[user_id] = []
-
-        user_chat_histories[user_id].append({"role": "user", "content": text})
-        if len(user_chat_histories[user_id]) > 10:
-            user_chat_histories[user_id] = user_chat_histories[user_id][-10:]
-
         try:
-            completion = openai_client.chat.completions.create(
-                model=AI_MODEL,
-                messages=user_chat_histories[user_id],
-                temperature=0.3,
-                max_tokens=800,
-            )
-            reply_text = completion.choices[0].message.content
-            user_chat_histories[user_id].append({"role": "assistant", "content": reply_text})
+            chat_session = gemini_model.start_chat(history=[])
+            response = chat_session.send_message(text)
+            reply_text = response.text
         except Exception as e:
-            logging.error(f"Lỗi OpenRouter API: {e}")
-            reply_text = "⚠️ Hệ thống OpenRouter đang bận, bạn nhắn lại nhé!"
+            logging.error(f"Lỗi Gemini API: {e}")
+            reply_text = "⚠️ Hệ thống Gemini đang bận, bạn nhắn lại nhé!"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
@@ -426,7 +406,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         bot_reply_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🐷 **Heo Đất AI (Free):**\n\n{reply_text}",
+            text=f"🐷 **Heo Đất AI (Gemini):**\n\n{reply_text}",
             parse_mode="Markdown"
         )
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
@@ -496,7 +476,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Bot đang chạy qua OpenRouter với Gemma 7B Free...")
+    logging.info("Bot đang chạy trực tiếp qua Gemini API...")
     application.run_polling()
 
 if __name__ == "__main__":
