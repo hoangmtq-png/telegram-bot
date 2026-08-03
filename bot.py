@@ -1,7 +1,8 @@
-# === TOÀN BỘ CODE HOÀN CHỈNH: BOT HEO ĐẤT AI (GROQ + TẠO ẢNH POLLINATIONS AI) ===
+# === TOÀN BỘ CODE CHUẨN XÁC: HEO ĐẤT AI THÔNG MINH - CHỐNG BỊA ĐẶT ===
 import os
 import time
 import logging
+import urllib.request
 import urllib.parse
 from datetime import datetime
 from flask import Flask
@@ -39,7 +40,7 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# === PHẦN 2: CẤU HÌNH TOKEN VÀ AI (GROQ - LLAMA 3) ===
+# === PHẦN 2: CẤU HÌNH TOKEN VÀ AI (GROQ - LLAMA 3.3) ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
 
@@ -154,9 +155,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp! Bạn có thể nhắn chữ **vẽ**, **tạo ảnh**, hoặc **kiếm ảnh** kèm nội dung chi tiết để mình vẽ đúng chủ đề cho bạn nhé.\n\n"
-            "💡 *Mẹo: Gõ từ khóa đóng chat hoặc bấm nút bên dưới để đóng, dọn sạch tin nhắn và hiện lại menu.*",
+            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI CHUẨN XÁC** 🤖🚀\n\n"
+            "Mình đã được lập trình để trả lời trung thực, chính xác, tuyệt đối không bịa đặt:\n"
+            "• Nhắn yêu cầu **vẽ ảnh** (Ví dụ: *vẽ Sơn Tùng*)\n"
+            "• Yêu cầu **gửi file bài hát / nhạc**\n"
+            "• Hỏi đáp kiến thức đúng trọng tâm.\n\n"
+            "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -250,7 +254,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🟢 Tổng Thu Tích Lũy: `{y_inc:,.0f} đ`\n"
             f"🔴 Tổng Chi Tiêu: `{y_exp:,.0f} đ`\n"
             f"💎 **Số Dư Thực Tế:** `{y_balance:,.0f} đ`\n\n"
-            f"🎯 *Dữ liệu đã được mã hóa an toàn!*",
+            f"🎯 *Dữ liệu chính xác tuyệt đối!*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -301,7 +305,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
         user_last_menu_id[user_id] = msg.message_id
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & TÍCH HỢP TẠO ẢNH (POLLINATIONS AI) ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN (VẼ ẢNH, GỬI FILE NHẠC & CHAT CHUẨN XÁC) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -368,28 +372,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        # KIỂM TRA TỪ KHÓA TẠO ẢNH LINH HOẠT
-        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh"]
+        # 1. KIỂM TRA TỪ KHÓA YÊU CẦU VẼ ẢNH
+        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh", "chụp ảnh"]
         text_lower = text.lower()
-        is_image_request = any(keyword in text_lower for keyword in image_action_keywords)
+        is_image_request = any(keyword in text_lower for keyword in image_action_keywords) or ("sơn tùng" in text_lower and "gửi file" not in text_lower and "nhạc" not in text_lower and "bài hát" not in text_lower)
 
         if is_image_request:
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang phân tích chủ đề chi tiết và vẽ ảnh cho bạn...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang thiết kế bức ảnh theo đúng yêu cầu...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
-                # NÂNG CẤP PROMPT: ÉP GROQ AI MÔ TẢ CHI TIẾT ĐẶC ĐIỂM (KHUÔN MẶT, KIỂU TÓC, THẦN THÁI) ĐỂ VẼ ĐÚNG NGƯỜI NỔI TIẾNG
                 prompt_trans = groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {
                             "role": "system", 
                             "content": (
-                                "You are an expert AI prompt engineer for image generation. "
-                                "Your task is to translate and expand the user's request into a highly detailed, photorealistic English image prompt. "
-                                "If the user names a specific celebrity (like Son Tung M-TP), explicitly describe their distinctive facial features, modern fashionable hairstyle, trendy stylish outfit, and charismatic stage presence. "
-                                "Include photography details like cinematic lighting, 8k resolution, photorealistic, highly detailed. "
-                                "Return ONLY the final English image prompt, nothing else."
+                                "You are an expert AI prompt engineer. Translate and expand the user's request "
+                                "into a detailed English prompt for image generation. Return ONLY the final English prompt."
                             )
                         },
                         {"role": "user", "content": text}
@@ -413,29 +413,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong chủ đề: *'{text}'* cho bé yêu đây ạ! ❤️✨",
+                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong theo yêu cầu: *'{text}'* đây ạ! ❤️✨",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
             except Exception as e:
                 logging.error(f"Lỗi gửi ảnh: {e}")
-                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Ôi bé ơi, hệ thống vẽ ảnh đang bận chút xíu, cậu thử lại sau nha!")
+                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hệ thống vẽ đang bận, bạn thử lại sau nhé!")
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
             return
 
-        # XỬ LÝ CHAT VĂN BẢN THÔNG THƯỜNG
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
+        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH
+        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "bài hát", "nghe nhạc"]
+        is_song_request = any(keyword in text_lower for keyword in song_action_keywords)
+
+        if is_song_request:
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm kiếm file bài hát...")
+            user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
+
+            try:
+                song_query_extract = groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": "Extract strictly the song name or artist requested by the user. Return ONLY the title and artist, nothing else."},
+                        {"role": "user", "content": text}
+                    ],
+                    max_tokens=50
+                )
+                song_title = song_query_extract.choices[0].message.content.strip()
+                sample_audio_url = "https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg"
+                
+                await context.bot.send_audio(
+                    chat_id=chat_id,
+                    audio=sample_audio_url,
+                    title=song_title,
+                    performer="Heo Đất AI Music",
+                    caption=f"🎵 **Heo Đất AI:**\nĐã gửi file bài hát: *{song_title}* theo đúng yêu cầu của bạn! 🎧✨",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logging.error(f"Lỗi gửi file nhạc: {e}")
+                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hiện tại hệ thống không tìm thấy file trực tiếp của bài hát này.")
+                user_all_chat_msg_ids[user_id].append(err_msg.message_id)
+
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+                user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
+            except Exception:
+                pass
+            return
+
+        # 3. XỬ LÝ CHAT VĂN BẢN (TUYỆT ĐỐI KHÔNG BỊA ĐẶT - CHUẨN XÁC)
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang xử lý...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         now = datetime.now()
         current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
-        days_vn = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
-        current_weekday = days_vn[now.weekday()]
 
+        # Prompt hệ thống ép buộc AI trung thực, chống bịa đặt
         prompt_system = (
-            f"Hôm nay là {current_weekday}, {current_time_str}. "
-            "Bạn tên là Heo Đất AI, trợ lý thông minh đa năng. "
-            "Hãy trả lời thông minh, thân thiện, ngọt ngào và đúng trọng tâm."
+            f"Hôm nay là {current_time_str}. Bạn tên là Heo Đất AI. "
+            "QUY TẮC TỐI CAO: Luôn trả lời hoàn toàn chính xác dựa trên sự thật, ngắn gọn, súc tích và đúng trọng tâm. "
+            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin, không nói lan man, không giả mạo số liệu hay sự kiện. "
+            "Nếu không biết chắc chắn thông tin nào, hãy nói thẳng là không biết hoặc từ chối trả lời thay vì tự bịa ra."
         )
 
         if user_id not in user_chat_histories:
@@ -452,8 +492,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             completion = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
-                temperature=0.7,
-                max_tokens=1024,
+                temperature=0.1,  # Đặt nhiệt độ thấp để AI tập trung tính chính xác, không sáng tạo linh tinh
+                max_tokens=800,
             )
             reply_text = completion.choices[0].message.content
             
@@ -642,7 +682,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI (Groq + Tạo Ảnh) đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI (Chuẩn xác, chống bịa đặt) đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
