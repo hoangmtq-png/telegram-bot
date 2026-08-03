@@ -1,10 +1,3 @@
-Lỗi `telegram.error.BadRequest: Can't parse entities` xảy ra là do **Markdown** trong câu trả lời của AI trả về có chứa các ký tự đặc biệt (như dấu gạch dưới `_`, dấu sao `*`, hoặc thẻ HTML/Markdown chưa đóng cặp đúng cách) khiến thư viện Telegram không dịch được định dạng.
-
-Để khắc phục triệt để lỗi này, chúng ta sẽ chuyển chế độ gửi tin nhắn từ `parse_mode="Markdown"` sang gửi văn bản thuần túy (`parse_mode=None`) cho phần phản hồi của AI, giúp bot không bao giờ bị lỗi format nữa.
-
-Dưới đây là mã nguồn `main.py` đã được sửa hoàn chỉnh:
-
-```python
 # =====================================================================
 # HEO ĐẤT AI PRO - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
 # =====================================================================
@@ -32,17 +25,16 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Khởi tạo Groq Client (Lấy GROQ_API_KEY từ biến môi trường trên Render)
+# Khởi tạo Groq Client
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
-# Cơ sở dữ liệu tạm thời trong bộ nhớ (In-memory database)
+# Cơ sở dữ liệu tạm thời trong bộ nhớ
 user_data_db = {}
 user_state = {}  
 user_ai_messages = {}
 user_all_chat_msg_ids = {} 
 user_last_menu_id = {}
 
-# --- GIAO DIỆN BẢNG ĐIỀU KHIỂN TÀI CHÍNH (HEO ĐẤT AI PRO) ---
 def get_main_menu_content(user_id):
     if user_id not in user_data_db:
         user_data_db[user_id] = {
@@ -144,7 +136,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG HEO ĐẤT AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🐷🤖 ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO 🤖🐷\n\n"
-            "Tôi là trợ lý Heo Đất AI, sẵn sàng hỗ trợ bạn trò chuyện siêu tốc, tìm nhạc, vẽ ảnh hoặc quản lý tài chính!\n\n"
+            "Tôi là trợ lý Heo Đất AI, sẵn sàng nhận diện mọi câu hỏi, tìm kiếm hình ảnh hoặc gửi file nhạc theo yêu cầu của bạn!\n\n"
             "💡 Bấm nút bên dưới khi muốn thoát về menu tài chính.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=None
@@ -322,10 +314,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text_lower = text.lower()
 
-        # 1. TÍNH NĂNG VẼ ẢNH
-        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh"]
+        # 1. TÍNH NĂNG TÌM KIẾM VÀ GỬI ẢNH
+        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh", "tìm ảnh", "ảnh"]
         if any(keyword in text_lower for keyword in image_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang vẽ ảnh...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang tìm và tạo ảnh...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             encoded_prompt = urllib.parse.quote(text)
@@ -349,10 +341,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 2. TÍNH NĂNG TÌM BÀI HÁT / GỬI FILE NHẠC
-        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "gửi nhạc", "tìm bài"]
+        # 2. TÍNH NĂNG TÌM KIẾM VÀ GỬI FILE NHẠC
+        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "gửi nhạc", "tìm bài", "nhạc", "bài hát"]
         if any(keyword in text_lower for keyword in song_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm file nhạc...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm bài hát và chuyển đổi file nhạc...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
@@ -361,7 +353,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id,
                     audio=sample_audio_url,
                     title=text,
-                    caption="🐷 Heo Đất AI Music: Gửi bạn bản nhạc yêu cầu! 🎧",
+                    caption=f"🐷 Heo Đất AI Music: Gửi bạn bản nhạc yêu cầu từ từ khóa '{text}'! 🎧",
                     parse_mode=None
                 )
                 user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
@@ -375,7 +367,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama-3.3 qua Groq)
+        # 3. NHẬN DIỆN MỌI CÂU HỎI VÀ TRÒ CHUYỆN VỚI HEO ĐẤT AI
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang soạn...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
@@ -384,7 +376,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Bạn là Heo Đất AI, một trợ lý thông minh, thân thiện, sắc sảo và chuyên gia hỗ trợ tài chính cá nhân siêu tốc."
+                        "content": "Bạn là Heo Đất AI, một trợ lý thông minh, thân thiện, sắc sảo và chuyên gia hỗ trợ tài chính cá nhân siêu tốc. Hãy trả lời rõ ràng mọi câu hỏi của người dùng bằng văn bản thông thường."
                     },
                     {
                         "role": "user",
@@ -407,7 +399,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_reply_msg = await context.bot.send_message(
             chat_id=chat_id,
             text=f"🐷 Heo Đất AI:\n\n{reply_text}",
-            parse_mode=None # Đã bỏ định dạng Markdown tránh lỗi ký tự đặc biệt
+            parse_mode=None
         )
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
         return
@@ -482,5 +474,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-```
