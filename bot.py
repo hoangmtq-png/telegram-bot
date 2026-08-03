@@ -47,7 +47,7 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 user_data_db = {}
 user_state = {}  # Lưu trạng thái: 'WAITING_INCOME', 'WAITING_EXPENSE', 'CHAT_AI'
 
-# === PHẦN 3: MENU CHÍNH XỊN SÒ ===
+# === PHẦN 3: MENU CHÍNH HIỆN ĐẠI, BẮT MẮT ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in user_data_db:
@@ -61,34 +61,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     d_exp = user_data_db[user_id]["daily_expense"]
     balance = d_inc - d_exp
 
-    # Tạo thanh tiến trình trực quan sinh động
+    # Hiệu ứng thanh tiến trình dòng tiền trực quan
     total_flow = d_inc + d_exp
     if total_flow > 0:
         inc_percent = int((d_inc / total_flow) * 10)
-        progress_bar = "🟢" * inc_percent + "🔴" * (10 - inc_percent)
+        progress_bar = "🟩" * inc_percent + "🟥" * (10 - inc_percent)
     else:
-        progress_bar = "⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️"
+        progress_bar = "⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️"
 
+    # Giao diện menu thiết kế dạng thẻ hiện đại, hiệu ứng sinh động
     text = (
-        "🐷 **HEO ĐẤT TÀI CHÍNH & TRỢ LÝ AI** 🐷\n\n"
-        f"📊 **Ví Hôm Nay:**\n"
-        f"  • Thu: `{d_inc:,.0f} đ` | Chi: `{d_exp:,.0f} đ`\n"
-        f"  • Số dư hiện tại: `{balance:,.0f} đ`\n"
-        f"  • Tỷ lệ Dòng tiền: {progress_bar}\n\n"
-        "👉 *Chọn các tính năng bên dưới để bắt đầu:*"
+        "╔═══════════════════════╗\n"
+        "✨ 🐷 **H E O  Đ Ấ T  P R O** 🐷 ✨\n"
+        "╚═══════════════════════╝\n\n"
+        "⚡ **TRẠNG THÁI VÍ HÔM NAY** ⚡\n"
+        f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
+        f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
+        f"  💎 **Số Dư:** `{balance:,.0f} đ`\n\n"
+        f"📊 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
+        "🔥 *Chọn thao tác nhanh bên dưới để bắt đầu:*"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("➕ Thêm Thu Nhập", callback_data="add_income"),
-            InlineKeyboardButton("➖ Thêm Chi Tiêu", callback_data="add_expense"),
+            InlineKeyboardButton("➕ 📥 Thêm Thu", callback_data="add_income"),
+            InlineKeyboardButton("➖ 📤 Thêm Chi", callback_data="add_expense"),
         ],
         [
-            InlineKeyboardButton("📜 Lịch Sử Giao Dịch", callback_data="view_history"),
+            InlineKeyboardButton("📜 Xem Giao Dịch", callback_data="view_history"),
             InlineKeyboardButton("📈 Tổng Kết Năm", callback_data="view_year"),
         ],
         [
-            InlineKeyboardButton("🤖 Trò Chuyện & Tâm Sự với AI", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 Trò Chuyện & Tâm Sự AI", callback_data="chat_ai_mode"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -114,16 +118,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "add_income":
         user_state[user_id] = "WAITING_INCOME"
-        await query.message.reply_text("📥 Vui lòng nhập số tiền **Thu Nhập** (Ví dụ: `500k` hoặc `2tr` hoặc `500000`):")
+        await query.message.reply_text("📥 **Nhập khoản Thu:** Vui lòng gửi số tiền (Ví dụ: `500k`, `2tr`, hoặc `500000`):", parse_mode="Markdown")
     elif query.data == "add_expense":
         user_state[user_id] = "WAITING_EXPENSE"
-        await query.message.reply_text("📤 Vui lòng nhập số tiền **Chi Tiêu** (Ví dụ: `50k` hoặc `100000`):")
+        await query.message.reply_text("📤 **Nhập khoản Chi:** Vui lòng gửi số tiền (Ví dụ: `50k`, `100000`):", parse_mode="Markdown")
     elif query.data == "chat_ai_mode":
         user_state[user_id] = "CHAT_AI"
-        keyboard = [[InlineKeyboardButton("🔙 Thoát Chế Độ AI & Về Menu", callback_data="back_home")]]
+        keyboard = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="back_home")]]
         await query.message.edit_text(
-            "🤖 **ĐÃ KÍCH HOẠT CHẾ ĐỘ TRỢ LÝ AI THÔNG MINH!**\n\n"
-            "Tôi sẵn sàng nghe bạn tâm sự, chia sẻ mẹo tiết kiệm tiền, hoặc giải đáp bất cứ thắc mắc gì. Hãy nhắn trực tiếp tin nhắn cho tôi ngay bây giờ!\n\n"
+            "🌟🤖 **KÍCH HOẠT TRỢ LÝ AI CAO CẤP** 🤖🌟\n\n"
+            "Mọi tâm sự, mẹo tiết kiệm hay câu hỏi tài chính cứ ném hết vào đây! Tôi đã sẵn sàng phục vụ ngài.\n\n"
             "*(Bấm nút bên dưới nếu muốn quay lại menu chính)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -131,13 +135,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "view_history":
         history = user_data_db[user_id]["history"][-5:]
         if not history:
-            history_text = "Chưa có giao dịch nào được ghi nhận hôm nay."
+            history_text = "✨ *Chưa có giao dịch nào được ghi nhận hôm nay.*"
         else:
-            history_text = "\n".join([f"• `{h['time']}` - **{h['type']}**: `{h['amount']:,.0f} đ`" for h in history])
+            history_text = "\n".join([f"🔹 `{h['time']}` - **{h['type']}**: `{h['amount']:,.0f} đ`" for h in history])
         
         keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
         await query.message.edit_text(
-            f"📜 **5 Giao Dịch Gần Nhất (Hôm Nay):**\n\n{history_text}",
+            f"📜 **5 GIAO DỊCH GẦN NHẤT HÔM NAY**\n\n{history_text}",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -148,11 +152,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
         await query.message.edit_text(
-            f"📈 **TỔNG KẾT TÀI CHÍNH CẢ NĂM** 📈\n\n"
-            f"🟢 Tổng thu cả năm: `{y_inc:,.0f} đ`\n"
-            f"🔴 Tổng chi cả năm: `{y_exp:,.0f} đ`\n"
-            f"💰 Tổng tích lũy: `{y_balance:,.0f} đ`\n\n"
-            f"🌟 *Cố gắng phát huy để năm sau bùng nổ hơn nữa nhé!*",
+            f"📈 **BẢNG TỔNG KẾT TÀI CHÍNH CẢ NĂM** 📈\n\n"
+            f"🟢 Tổng thu tích lũy: `{y_inc:,.0f} đ`\n"
+            f"🔴 Tổng chi tiêu: `{y_exp:,.0f} đ`\n"
+            f"💎 **Số dư tài chính:** `{y_balance:,.0f} đ`\n\n"
+            f"🚀 *Phong độ tài chính tuyệt vời, tiếp tục phát huy nhé!*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -166,22 +170,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if user_id not in user_state:
-        # Nếu người dùng tự nhiên nhắn tin mà không bấm menu, mặc định đẩy sang AI chat hoặc nhắc bấm /start
         user_state[user_id] = "CHAT_AI"
 
     state = user_state[user_id]
 
     # TRƯỜNG HỢP 1: ĐANG CHAT VỚI AI
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🤖 Trợ lý AI đang suy nghĩ...")
+        thinking_msg = await update.message.reply_text("🤖 *Trợ lý AI đang xử lý dữ liệu...*")
         try:
-            # Giao tiếp với Gemini AI với tính cách thân thiện, hài hước như một người bạn
             prompt_system = (
                 "Bạn là một trợ lý tài chính kiêm người bạn thân thiết, vui vẻ, thông minh và hài hước trong một bot Telegram quản lý tài chính cá nhân. "
                 "Hãy trò chuyện và tư vấn thật tự nhiên như một con người thực thụ, đôi khi dùng emoji sinh động, trả lời súc tích và hữu ích."
             )
             response = ai_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=f"{prompt_system}\n\nNgười dùng nhắn: {text}"
             )
             reply_text = response.text
@@ -234,7 +236,6 @@ async def send_daily_report(application):
         exp = data["daily_expense"]
         balance = inc - exp
         
-        # Câu chúc may mắn tự động lúc 00h
         report_text = (
             f"🌙 **BÁO CÁO TÀI CHÍNH CUỐI NGÀY ({current_date})** 🌙\n\n"
             f"🟢 Tổng thu hôm nay: `{inc:,.0f} đ`\n"
@@ -247,7 +248,6 @@ async def send_daily_report(application):
         except Exception as e:
             logging.error(f"Lỗi gửi báo cáo ngày cho {user_id}: {e}")
         
-        # Reset ví ngày cũ để bắt đầu ngày mới sạch sẽ (Giữ lại yearly để tổng kết cuối năm)
         data["daily_income"] = 0.0
         data["daily_expense"] = 0.0
         data["history"] = []
@@ -277,15 +277,13 @@ async def send_yearly_report(application):
 
 def schedule_jobs(application):
     scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
-    # Tự động chạy đúng 00:00 mỗi đêm
     scheduler.add_job(lambda: application.create_task(send_daily_report(application)), 'cron', hour=0, minute=0)
-    # Tự động tổng kết ngày 31/12 hàng năm
     scheduler.add_job(lambda: application.create_task(send_yearly_report(application)), 'cron', month=12, day=31, hour=0, minute=0)
     scheduler.start()
 
 # === PHẦN 7: KHỞI CHẠY HỆ THỐNG ===
 def main():
-    keep_alive()  # Chạy Flask Server duy trì bot trên Render 24/7
+    keep_alive()
 
     application = ApplicationBuilder().token(TOKEN).build()
 
