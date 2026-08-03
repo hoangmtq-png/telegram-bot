@@ -1,4 +1,4 @@
-# === CODE HOÀN CHỈNH: OPENROUTER (META-LLAMA-3-8B FREE) + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
+# === CODE HOÀN CHỈNH: OPENROUTER (GEMMA-7B FREE) + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
 import os
 import time
 import logging
@@ -48,7 +48,7 @@ openai_client = OpenAI(
 )
 
 # Sử dụng model miễn phí đang hoạt động tốt trên OpenRouter
-AI_MODEL = "meta-llama/llama-3-8b-instruct:free"
+AI_MODEL = "google/gemma-7b-it:free"
 
 user_data_db = {}
 user_state = {}  
@@ -496,7 +496,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Bot đang chạy qua OpenRouter với Llama 3 Free...")
+    logging.info("Bot đang chạy qua OpenRouter với Gemma 7B Free...")
     application.run_polling()
 
 if __name__ == "__main__":
