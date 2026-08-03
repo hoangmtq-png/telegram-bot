@@ -1,8 +1,9 @@
 # =====================================================================
-# HEO ĐẤT AI PRO - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
+# HEO ĐẤT AI PRO - NÂNG CẤP BỘ NÃO AI THÔNG MINH NHƯ GROK
 # =====================================================================
 import os
 import logging
+import json
 import urllib.parse
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -135,8 +136,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG HEO ĐẤT AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🐷🤖 ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO 🤖🐷\n\n"
-            "Tôi là trợ lý Heo Đất AI, sẵn sàng nhận diện mọi câu hỏi, tìm kiếm hình ảnh hoặc gửi file nhạc theo yêu cầu của bạn!\n\n"
+            "🐷🤖 ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO (SMART BRAIN) 🤖🐷\n\n"
+            "Tôi đã có bộ não thông minh như Grok, hiểu rõ mọi câu hỏi, ý định vẽ ảnh hoặc tìm nhạc của bạn một cách tự nhiên nhất!\n\n"
             "💡 Bấm nút bên dưới khi muốn thoát về menu tài chính.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=None
@@ -312,22 +313,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        text_lower = text.lower()
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang phân tích yêu cầu...")
+        user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
-        # 1. TÍNH NĂNG TÌM KIẾM VÀ GỬI ẢNH
-        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh", "tìm ảnh", "ảnh"]
-        if any(keyword in text_lower for keyword in image_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang tìm và tạo ảnh...")
-            user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
+        # BỘ NÃO THÔNG MINH (AI INTENT CLASSIFIER - HOẠT ĐỘNG NHƯ GROK)
+        try:
+            classifier_prompt = (
+                "Bạn là bộ não phân loại ý định thông minh của trợ lý Heo Đất AI. "
+                "Hãy đọc câu nhắn của người dùng và phân loại thành MỘT trong các dạng ý định sau:\n"
+                "1. 'IMAGE': Người dùng muốn vẽ tranh, tạo hình ảnh, tìm kiếm một bức ảnh nào đó.\n"
+                "2. 'MUSIC': Người dùng muốn nghe nhạc, tìm bài hát, tải file nhạc.\n"
+                "3. 'CHAT': Trò chuyện thông thường, hỏi đáp kiến thức, hỏi bạn là ai, chào hỏi, hoặc các vấn đề khác.\n\n"
+                "Hãy trả về ĐÚNG định dạng JSON thuần túy (không kèm markdown block như ```json) với cấu trúc:\n"
+                "{\"intent\": \"IMAGE\" hoặc \"MUSIC\" hoặc \"CHAT\", \"response_text\": \"Nội dung tiếng Anh tối ưu hóa để vẽ ảnh (nếu là IMAGE) hoặc câu trả lời trò chuyện (nếu là CHAT) hoặc tên bài hát (nếu là MUSIC)\"}\n\n"
+                f"Câu của người dùng: \"{text}\""
+            )
 
-            encoded_prompt = urllib.parse.quote(text)
-            image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+            classification_res = groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": classifier_prompt}],
+                model="llama-3.3-70b-versatile",
+                temperature=0.1
+            )
+            
+            raw_output = classification_res.choices[0].message.content.strip()
+            # Làm sạch nếu AI lỡ bọc trong markdown code block
+            if raw_output.startswith("```"):
+                raw_output = raw_output.split("```")[1]
+                if raw_output.startswith("json"):
+                    raw_output = raw_output[4:]
+            raw_output = raw_output.strip()
 
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-                user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
-            except Exception:
-                pass
+            parsed_data = json.loads(raw_output)
+            intent = parsed_data.get("intent", "CHAT")
+            ai_payload = parsed_data.get("response_text", text)
+
+        except Exception as e:
+            logging.error(f"Lỗi AI Intent Classification: {e}")
+            intent = "CHAT"
+            ai_payload = text
+
+        # Xóa tin nhắn đang suy nghĩ
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+            user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
+        except Exception:
+            pass
+
+        # THỰC THI HÀNH ĐỘNG DỰA TRÊN Ý ĐỊNH ĐÃ PHÂN TÍCH
+        if intent == "IMAGE":
+            encoded_prompt = urllib.parse.quote(ai_payload)
+            image_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){encoded_prompt}?width=1024&height=1024&nologo=true"
 
             try:
                 photo_msg = await context.bot.send_photo(
@@ -337,72 +372,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=None
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
-            except Exception:
-                pass
+            except Exception as ex:
+                logging.error(f"Lỗi gửi ảnh: {ex}")
             return
 
-        # 2. TÍNH NĂNG TÌM KIẾM VÀ GỬI FILE NHẠC
-        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "gửi nhạc", "tìm bài", "nhạc", "bài hát"]
-        if any(keyword in text_lower for keyword in song_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm bài hát và chuyển đổi file nhạc...")
-            user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
-
+        elif intent == "MUSIC":
             try:
-                sample_audio_url = "https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg"
+                sample_audio_url = "[https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg](https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg)"
                 audio_msg = await context.bot.send_audio(
                     chat_id=chat_id,
                     audio=sample_audio_url,
                     title=text,
-                    caption=f"🐷 Heo Đất AI Music: Gửi bạn bản nhạc yêu cầu từ từ khóa '{text}'! 🎧",
+                    caption=f"🐷 Heo Đất AI Music: Gửi bạn bản nhạc yêu cầu '{text}'! 🎧",
                     parse_mode=None
                 )
                 user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
-            except Exception:
-                pass
-
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-                user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
-            except Exception:
-                pass
+            except Exception as ex:
+                logging.error(f"Lỗi gửi nhạc: {ex}")
             return
 
-        # 3. NHẬN DIỆN MỌI CÂU HỎI VÀ TRÒ CHUYỆN VỚI HEO ĐẤT AI
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang soạn...")
-        user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
-
-        try:
-            chat_completion = groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Bạn là Heo Đất AI, một trợ lý thông minh, thân thiện, sắc sảo và chuyên gia hỗ trợ tài chính cá nhân siêu tốc. Hãy trả lời rõ ràng mọi câu hỏi của người dùng bằng văn bản thông thường."
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
+        else: # Ý định CHAT / HỎI ĐÁP THÔNG THƯỜNG
+            bot_reply_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🐷 Heo Đất AI:\n\n{ai_payload}",
+                parse_mode=None
             )
-            reply_text = chat_completion.choices[0].message.content
-        except Exception as e:
-            logging.error(f"Lỗi Groq API Engine: {e}")
-            reply_text = "⚠️ Hệ thống Heo Đất AI đang bận, bạn vui lòng nhắn lại nhé!"
-
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
-            user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
-        except Exception:
-            pass
-
-        bot_reply_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"🐷 Heo Đất AI:\n\n{reply_text}",
-            parse_mode=None
-        )
-        user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
-        return
+            user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
+            return
 
     # Xử lý sửa giao dịch tài chính
     if state.startswith("EDITING_TX_"):
@@ -469,7 +465,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Heo Đất AI Pro đang chạy trực tuyến...")
+    logging.info("Heo Đất AI Pro (Smart Brain) đang chạy trực tuyến...")
     application.run_polling()
 
 if __name__ == "__main__":
