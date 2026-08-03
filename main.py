@@ -1,8 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (PRODUCTION READY EDITION)
-# ====================================================================================================
-# Hệ thống quản lý tài chính doanh nghiệp kết hợp AI trợ lý thông minh độc lập, 
-# tích hợp sẵn bộ kiểm toán, bảo mật khóa phiên và cơ chế xử lý ngoại lệ toàn diện.
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (WITH WEB SEARCH AGENT)
 # ====================================================================================================
 
 import os
@@ -10,19 +7,11 @@ import sys
 import json
 import time
 import logging
-import urllib.parse
-import re
-import math
-import random
 import hashlib
-import threading
-import socket
-import hmac
-import base64
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Union, Tuple, Set
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -32,6 +21,7 @@ from telegram.ext import (
     filters,
 )
 from groq import Groq
+from duckduckgo_search import DDGS
 
 # ----------------------------------------------------------------------------------------------------
 # CẤU HÌNH MÔI TRƯỜNG & KHỞI TẠO HẠ TẦNG LOGGING
@@ -69,6 +59,31 @@ except Exception as e:
 
 
 # ----------------------------------------------------------------------------------------------------
+# HỆ THỐNG TÌM KIẾM INTERNET THỜI GIAN THỰC (WEB SEARCH AGENT)
+# ----------------------------------------------------------------------------------------------------
+def enterprise_search_web(query: str, max_results: int = 3) -> str:
+    """Hàm tự động tra cứu thông tin mới nhất trên internet."""
+    try:
+        logger.info(f"Đang thực hiện tra cứu web cho từ khóa: {query}")
+        with DDGS() as ddgs:
+            results = [r for r in ddgs.text(query, max_results=max_results)]
+            if not results:
+                return "Không tìm thấy kết quả trực tuyến phù hợp."
+            
+            formatted_snippets = []
+            for idx, res in enumerate(results, 1):
+                title = res.get('title', 'No Title')
+                body = res.get('body', 'No Content')
+                href = res.get('href', '#')
+                formatted_snippets.append(f"[{idx}] {title}\n- Nội dung: {body}\n- Nguồn: {href}")
+            
+            return "\n\n".join(formatted_snippets)
+    except Exception as e:
+        logger.error(f"Lỗi khi tra cứu Web Search: {e}")
+        return "Không thể kết nối đến internet để tra cứu lúc này."
+
+
+# ----------------------------------------------------------------------------------------------------
 # BỘ NHỚ TRONG & CƠ SỞ DỮ LIỆU ĐĂNG KÝ (IN-MEMORY ENTERPRISE REGISTRY)
 # ----------------------------------------------------------------------------------------------------
 enterprise_user_registry: Dict[int, Dict[str, Any]] = {}
@@ -77,15 +92,9 @@ enterprise_message_tracker: Dict[int, List[int]] = {}
 enterprise_menu_pointers: Dict[int, int] = {}
 enterprise_chat_histories: Dict[int, List[Dict[str, str]]] = {}
 enterprise_audit_ledgers: Dict[int, List[Dict[str, Any]]] = {}
-enterprise_system_metrics: Dict[str, Any] = {
-    "total_requests": 0,
-    "active_sessions": 0,
-    "boot_timestamp": datetime.now().isoformat()
-}
 
 
 def enterprise_bootstrap_user(user_id: int) -> None:
-    """Khởi tạo cấu trúc tài khoản doanh nghiệp chuẩn cho người dùng mới."""
     if user_id not in enterprise_user_registry:
         enterprise_user_registry[user_id] = {
             "profile_id": user_id,
@@ -100,7 +109,6 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "currency_unit": "VND",
             "account_tier": "VIP_ENTERPRISE"
         }
-        enterprise_system_metrics["active_sessions"] += 1
 
     if user_id not in enterprise_chat_histories:
         enterprise_chat_histories[user_id] = [
@@ -108,7 +116,8 @@ def enterprise_bootstrap_user(user_id: int) -> None:
                 "role": "system",
                 "content": (
                     "Bạn là Heo Đất AI Pro, trợ lý thông minh cao cấp kết hợp quản lý tài chính doanh nghiệp. "
-                    "Luôn phân tích sắc sảo, trả lời chính xác, mạch lạc và có chiều sâu."
+                    "Khi người dùng hỏi các thông tin thực tế, hệ thống sẽ cung cấp dữ liệu tra cứu từ internet, "
+                    "hãy tổng hợp chúng thành câu trả lời sắc sảo, chính xác và mạch lạc."
                 )
             }
         ]
@@ -118,10 +127,8 @@ def enterprise_bootstrap_user(user_id: int) -> None:
 
 
 def enterprise_record_audit_trail(user_id: int, action_type: str, payload_desc: str) -> None:
-    """Ghi lại vết kiểm toán bảo mật cho từng hành động."""
     if user_id not in enterprise_audit_ledgers:
         enterprise_audit_ledgers[user_id] = []
-    
     audit_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "action": action_type,
@@ -129,11 +136,10 @@ def enterprise_record_audit_trail(user_id: int, action_type: str, payload_desc: 
         "checksum": hashlib.md5(f"{user_id}{time.time()}{action_type}".encode()).hexdigest()[:8]
     }
     enterprise_audit_ledgers[user_id].append(audit_entry)
-    logger.info(f"AUDIT | User: {user_id} | Action: {action_type} | Desc: {payload_desc}")
 
 
 # ----------------------------------------------------------------------------------------------------
-# HỆ THỐNG XỬ LÝ TOÁN TÀI CHÍNH & GIAO DIỆN ĐỒ HỌA
+# GIAO DIỆN BẢNG ĐIỀU KHIỂN
 # ----------------------------------------------------------------------------------------------------
 def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     enterprise_bootstrap_user(user_id)
@@ -141,8 +147,8 @@ def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     inc, exp = data["daily_income"], data["daily_expense"]
     net = inc - exp
     budget = data["budget_limit"]
-    
     burn_rate = (exp / budget * 100) if budget > 0 else 0.0
+    
     status = "STABLE"
     if exp > budget:
         status = "CRITICAL_OVER_BUDGET"
@@ -173,7 +179,7 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
 
     dashboard_text = (
         "╔══════════════════════════════════════════════════╗\n"
-        "      🐷 HEO ĐẤT AI PRO - ENTERPRISE CORE 🐷          \n"
+        "      🐷 HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0       \n"
         "╚══════════════════════════════════════════════════╝\n\n"
         f"  📌 Trạng thái: {badge}\n"
         f"  📥 Tổng Thu Nhập: {d_inc:,.0f} đ\n"
@@ -194,7 +200,7 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ ĐIỀU PHỐI SỰ KIỆN VÀ LỆNH TELEGRAM
+# XỬ LÝ LỆNH & SỰ KIỆN CALLBACK
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_command_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -217,7 +223,6 @@ async def enterprise_command_start_handler(update: Update, context: ContextTypes
 
     msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
     enterprise_menu_pointers[user_id] = msg.message_id
-    enterprise_record_audit_trail(user_id, "START", "Khởi động lại bảng điều khiển.")
 
 
 async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,7 +248,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
         enterprise_message_tracker[user_id] = []
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
-        m = await query.message.reply_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Enterprise. Hãy gửi yêu cầu của bạn!", reply_markup=InlineKeyboardMarkup(kb))
+        m = await query.message.reply_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI kèm Web Search. Hãy hỏi bất cứ thông tin gì!", reply_markup=InlineKeyboardMarkup(kb))
         enterprise_message_tracker[user_id].append(m.message_id)
         try:
             await query.message.delete()
@@ -293,7 +298,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ XỬ LÝ TIN NHẮN & TÍCH HỢP LLM (AI DISPATCHER)
+# BỘ ĐIỀU PHỐI TIN NHẮN & TÍCH HỢP WEB SEARCH + LLM
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -306,13 +311,11 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
     if state == "ENTERPRISE_AI_CHAT":
         exit_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "bye", "đóng", "thoát", "menu"]
         if any(cmd in raw_text.lower() for cmd in exit_keywords):
-            # 1. Xóa tin nhắn từ khóa của người dùng
             try:
                 await update.message.delete()
             except Exception:
                 pass
 
-            # 2. Xóa toàn bộ tin nhắn lịch sử trò chuyện AI đã lưu trong tracker
             if user_id in enterprise_message_tracker:
                 for msg_id in enterprise_message_tracker[user_id]:
                     try:
@@ -321,43 +324,57 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                         pass
                 enterprise_message_tracker[user_id] = []
 
-            # 3. Xóa menu cũ nếu còn tồn tại
             if user_id in enterprise_menu_pointers:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
                 except Exception:
                     pass
 
-            # 4. Reset trạng thái và gửi lại bảng điều khiển chính sạch sẽ
             enterprise_user_states.pop(user_id, None)
             text, markup = enterprise_render_dashboard_menu(user_id)
             msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
             enterprise_menu_pointers[user_id] = msg.message_id
             return
 
-        # Tiến trình chat AI thông thường
         try:
             enterprise_message_tracker.setdefault(user_id, []).append(update.message.message_id)
             await update.message.delete()
         except Exception:
             pass
 
-        thinking = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang xử lý...")
+        # Hiển thị trạng thái đang tìm kiếm web
+        thinking = await context.bot.send_message(chat_id=chat_id, text="🔍 Heo Đất AI đang tra cứu Google...")
         enterprise_message_tracker[user_id].append(thinking.message_id)
+
+        # 1. Tự động tìm kiếm thông tin trên web dựa trên câu hỏi của người dùng
+        search_data = enterprise_search_web(raw_text)
+
+        # 2. Đưa kết quả tìm kiếm vào prompt gửi cho LLM (Groq)
+        prompt_with_context = (
+            f"Dữ liệu tra cứu trực tuyến từ internet cho câu hỏi '{raw_text}':\n"
+            f"{search_data}\n\n"
+            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi của người dùng một cách chính xác, sắc sảo và đầy đủ nhất."
+        )
 
         reply_content = raw_text
         if groq_client:
             try:
-                enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
+                temp_messages = list(enterprise_chat_histories[user_id])
+                temp_messages.append({"role": "user", "content": prompt_with_context})
+                
                 res = groq_client.chat.completions.create(
-                    messages=enterprise_chat_histories[user_id],
+                    messages=temp_messages,
                     model="llama-3.3-70b-versatile",
                     temperature=0.7
                 )
                 reply_content = res.choices[0].message.content
+                
+                # Lưu lịch sử chat thuần túy
+                enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
                 enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
             except Exception as e:
                 logger.error(f"Groq API Error: {e}")
+                reply_content = f"Đã tra cứu được thông tin nhưng gặp lỗi xử lý AI: {search_data}"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
@@ -407,7 +424,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Web Search Enabled)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -415,7 +432,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VÀ CHẠY POLLING THÀNH CÔNG!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG KÈM TÍNH NĂNG TRA CỨU INTERNET!")
     application.run_polling()
 
 
