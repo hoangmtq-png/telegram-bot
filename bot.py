@@ -46,7 +46,6 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 user_data_db = {}
 user_state = {}  
 user_chat_histories = {} 
-# Lưu danh sách ID các tin nhắn AI trả lời để có thể dọn dẹp sạch sẽ khi cần
 user_ai_messages = {}
 
 # === PHẦN 3: HÀM TẠO GIAO DIỆN MENU CHÍNH ===
@@ -67,9 +66,9 @@ def get_main_menu_content(user_id):
     total_flow = d_inc + d_exp
     if total_flow > 0:
         inc_percent = int((d_inc / total_flow) * 10)
-        progress_bar = "🟩" * inc_percent + "🟥" * (10 - inc_percent)
+        progress_bar = "🟢" * inc_percent + "🔴" * (10 - inc_percent)
     else:
-        progress_bar = "⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️"
+        progress_bar = "⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️⚪️"
 
     text = (
         "╔═══════════════════════════╗\n"
@@ -94,7 +93,7 @@ def get_main_menu_content(user_id):
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
         ],
         [
-            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI TRÒ CHUYỆN", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI ĐA NĂNG", callback_data="chat_ai_mode"),
         ]
     ]
     return text, InlineKeyboardMarkup(keyboard)
@@ -133,8 +132,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "CHAT_AI"
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         await query.message.edit_text(
-            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI** 🤖🚀\n\n"
-            "Mình là Heo Đất AI, trợ lý tài chính và người bạn đồng hành của bạn. Hãy hỏi mình bất cứ điều gì nhé!\n\n"
+            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
+            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình:\n"
+            "• Tìm kiếm thông tin, kiến thức bất kỳ.\n"
+            "• Tìm link hình ảnh, link phim, video giải trí.\n"
+            "• Hỗ trợ tài chính, viết lách, lập trình, tâm sự...\n\n"
             "*(Nhấn nút bên dưới để đóng giao diện chat và về menu chính)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -172,7 +174,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
         
-        # Xóa sạch toàn bộ các tin nhắn phản hồi của AI trước đó để khung chat cực kỳ sạch sẽ
         if user_id in user_ai_messages:
             for msg_id in user_ai_messages[user_id]:
                 try:
@@ -181,7 +182,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             user_ai_messages[user_id] = []
 
-        # Xóa luôn tin nhắn giao diện AI hiện tại và gửi Menu mới tinh ở đáy khung chat
         try:
             await query.message.delete()
         except Exception:
@@ -201,9 +201,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🐷 `Heo Đất AI đang trả lời...`")
+        thinking_msg = await update.message.reply_text("🐷 `Heo Đất AI đang tìm kiếm thông tin...`")
         
-        # Lưu ID tin nhắn chờ để có thể dọn dẹp sau này
         if user_id not in user_ai_messages:
             user_ai_messages[user_id] = []
         user_ai_messages[user_id].append(thinking_msg.message_id)
@@ -215,8 +214,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         prompt_system = (
             f"Hôm nay là {current_weekday}, {current_time_str}. "
-            "Bạn tên là Heo Đất AI, một trợ lý tài chính kiêm người bạn thân thiết, thông minh, đa ngôn ngữ và cực kỳ tận tâm. "
-            "Hãy ghi nhớ ngữ cảnh trò chuyện để trả lời tự nhiên, chính xác, thân thiện."
+            "Bạn tên là Heo Đất AI, một trợ lý thông minh đa năng tối thượng. "
+            "Bạn có khả năng trả lời mọi câu hỏi, tìm kiếm hình ảnh, cung cấp các đường link xem phim, video, trang web, tra cứu thông tin thời sự, kiến thức, lập trình và tài chính. "
+            "Khi người dùng yêu cầu tìm hình ảnh, hãy tìm và cung cấp link hình ảnh trực tiếp (định dạng URL ảnh) hoặc hướng dẫn cụ thể. "
+            "Khi người dùng yêu cầu tìm phim/video, hãy cung cấp tên chính xác kèm theo link xem phim/trailer (ví dụ link YouTube, Netflix, v.v.). "
+            "Hãy trả lời thông minh, thân thiện, rõ ràng bằng định dạng Markdown đẹp mắt."
         )
 
         if user_id not in user_chat_histories:
