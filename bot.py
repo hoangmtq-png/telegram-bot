@@ -155,7 +155,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp! Mình có thể chat, tìm kiếm thông tin, và **vẽ ảnh trực tiếp** khi bạn dùng đúng từ khóa (`vẽ ảnh`, `vẽ một tấm ảnh`, `kiếm ảnh`).\n\n"
+            "Mình là Heo Đất AI siêu cấp! Bạn có thể nhắn chữ **vẽ**, **tạo ảnh**, hoặc **kiếm ảnh** kèm nội dung chi tiết để mình vẽ đúng chủ đề cho bạn nhé.\n\n"
             "💡 *Mẹo: Gõ từ khóa đóng chat hoặc bấm nút bên dưới để đóng, dọn sạch tin nhắn và hiện lại menu.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -368,26 +368,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        # CHỈ KÍCH HOẠT TẠO ẢNH KHI CÓ ĐÚNG CÁC CỤM TỪ YÊU CẦU
-        image_action_keywords = [
-            "vẽ một tấm ảnh", 
-            "vẽ ảnh", 
-            "kiếm ảnh"
-        ]
-        is_image_request = any(keyword in text.lower() for keyword in image_action_keywords)
+        # KIỂM TRA TỪ KHÓA TẠO ẢNH LINH HOẠT
+        image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh"]
+        text_lower = text.lower()
+        is_image_request = any(keyword in text_lower for keyword in image_action_keywords)
 
         if is_image_request:
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang phác thảo và vẽ ảnh theo yêu cầu của bạn...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang phân tích chủ đề chi tiết và vẽ ảnh cho bạn...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
+                # NÂNG CẤP PROMPT: ÉP GROQ AI MÔ TẢ CHI TIẾT ĐẶC ĐIỂM (KHUÔN MẶT, KIỂU TÓC, THẦN THÁI) ĐỂ VẼ ĐÚNG NGƯỜI NỔI TIẾNG
                 prompt_trans = groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
-                        {"role": "system", "content": "You are an AI prompt engineer for image generation. Extract the core subject from the user request and translate/optimize it into a detailed English image prompt. Return ONLY the English prompt, nothing else."},
+                        {
+                            "role": "system", 
+                            "content": (
+                                "You are an expert AI prompt engineer for image generation. "
+                                "Your task is to translate and expand the user's request into a highly detailed, photorealistic English image prompt. "
+                                "If the user names a specific celebrity (like Son Tung M-TP), explicitly describe their distinctive facial features, modern fashionable hairstyle, trendy stylish outfit, and charismatic stage presence. "
+                                "Include photography details like cinematic lighting, 8k resolution, photorealistic, highly detailed. "
+                                "Return ONLY the final English image prompt, nothing else."
+                            )
+                        },
                         {"role": "user", "content": text}
                     ],
-                    max_tokens=100
+                    max_tokens=200
                 )
                 img_prompt = prompt_trans.choices[0].message.content.strip()
             except Exception:
@@ -406,7 +413,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong bức ảnh theo yêu cầu: *'{text}'* cho bé yêu đây ạ! ❤️✨",
+                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong chủ đề: *'{text}'* cho bé yêu đây ạ! ❤️✨",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
