@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (WITH SMART WEB SEARCH AGENT)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (SMART SEARCH & FULL OPTIMIZED)
 # ====================================================================================================
 
 import os
@@ -59,14 +59,19 @@ except Exception as e:
 
 
 # ----------------------------------------------------------------------------------------------------
-# HỆ THỐNG TÌM KIẾM INTERNET THỜI GIAN THỰC (WEB SEARCH AGENT)
+# HỆ THỐNG TÌM KIẾM INTERNET THÔNG MINH (OPTIMIZED SEARCH AGENT)
 # ----------------------------------------------------------------------------------------------------
 def enterprise_search_web(query: str, max_results: int = 3) -> str:
-    """Hàm tự động tra cứu thông tin mới nhất trên internet."""
+    """Hàm tra cứu thông tin tối ưu hóa cho tiếng Việt và dữ liệu giải trí/âm nhạc."""
     try:
-        logger.info(f"Đang thực hiện tra cứu web cho từ khóa: {query}")
+        logger.info(f"Đang thực hiện tra cứu web thông minh cho từ khóa: {query}")
         with DDGS() as ddgs:
             results = [r for r in ddgs.text(query, max_results=max_results)]
+            
+            if not results and "bài hát" not in query.lower():
+                fallback_query = f"bài hát {query}"
+                results = [r for r in ddgs.text(fallback_query, max_results=max_results)]
+
             if not results:
                 return "Không tìm thấy kết quả trực tuyến phù hợp."
             
@@ -124,18 +129,6 @@ def enterprise_bootstrap_user(user_id: int) -> None:
 
     if user_id not in enterprise_audit_ledgers:
         enterprise_audit_ledgers[user_id] = []
-
-
-def enterprise_record_audit_trail(user_id: int, action_type: str, payload_desc: str) -> None:
-    if user_id not in enterprise_audit_ledgers:
-        enterprise_audit_ledgers[user_id] = []
-    audit_entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "action": action_type,
-        "description": payload_desc,
-        "checksum": hashlib.md5(f"{user_id}{time.time()}{action_type}".encode()).hexdigest()[:8]
-    }
-    enterprise_audit_ledgers[user_id].append(audit_entry)
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -342,16 +335,24 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         except Exception:
             pass
 
-        thinking = await context.bot.send_message(chat_id=chat_id, text="Đang soạn...")
+        thinking = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI Pro đang soạn...")
         enterprise_message_tracker[user_id].append(thinking.message_id)
 
-        # 1. Tự động tối ưu từ khóa tìm kiếm
+        # 1. AI tinh chỉnh từ khóa thông minh
         search_query = raw_text
         if groq_client:
             try:
                 keyword_res = groq_client.chat.completions.create(
                     messages=[
-                        {"role": "system", "content": "Bạn là chuyên gia tối ưu từ khóa tìm kiếm. Hãy rút gọn câu hỏi của người dùng thành từ khóa tìm kiếm Google ngắn gọn, chính xác nhất (chỉ trả về đúng từ khóa, không kèm lời giải thích)."},
+                        {
+                            "role": "system", 
+                            "content": (
+                                "Bạn là chuyên gia phân tích và tối ưu từ khóa tìm kiếm Google. "
+                                "Nhiệm vụ của bạn là trích xuất chính xác tên bài hát, ca sĩ, hoặc từ khóa cốt lõi từ câu hỏi của người dùng. "
+                                "Nếu người dùng hỏi về bài hát/lời bài hát, hãy giữ lại tên bài hoặc các câu hát chính kèm từ khóa 'bài hát' hoặc 'lyrics'. "
+                                "Chỉ trả về đúng từ khóa tìm kiếm tối ưu nhất, tuyệt đối không kèm lời giải thích hay dấu ngoặc."
+                            )
+                        },
                         {"role": "user", "content": raw_text}
                     ],
                     model="llama-3.3-70b-versatile",
@@ -361,15 +362,16 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             except Exception:
                 pass
 
-        # 2. Tìm kiếm web dựa trên từ khóa đã tối ưu
+        # 2. Thực hiện tìm kiếm web thông minh
         search_data = enterprise_search_web(search_query)
 
         # 3. Tổng hợp trả lời
         prompt_with_context = (
             f"Câu hỏi gốc của người dùng: '{raw_text}'\n"
-            f"Dữ liệu tra cứu trực tuyến từ internet cho từ khóa '{search_query}':\n"
+            f"Từ khóa tìm kiếm tối ưu: '{search_query}'\n"
+            f"Dữ liệu tra cứu trực tuyến từ internet:\n"
             f"{search_data}\n\n"
-            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi một cách chính xác, ngắn gọn và mạch lạc."
+            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi của người dùng một cách chính xác, tự nhiên, đầy đủ thông tin (nếu là bài hát hãy nêu tên bài, ca sĩ, tác giả hoặc lời liên quan nếu có)."
         )
 
         reply_content = raw_text
@@ -389,7 +391,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
             except Exception as e:
                 logger.error(f"Groq API Error: {e}")
-                reply_content = f"Đã tra cứu được thông tin nhưng gặp lỗi xử lý AI."
+                reply_content = f"Dựa trên kết quả tra cứu cho từ khóa '{search_query}':\n{search_data}"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
@@ -397,7 +399,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         except Exception:
             pass
 
-        m = await context.bot.send_message(chat_id=chat_id, text=f"🐷 Heo Đất AI:\n\n{reply_content}")
+        m = await context.bot.send_message(chat_id=chat_id, text=f"🐷 Heo Đất AI Pro:\n\n{reply_content}")
         enterprise_message_tracker[user_id].append(m.message_id)
         return
 
@@ -439,7 +441,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Web Search Enabled)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Smart Search Enabled)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -447,7 +449,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG KÈM TÍNH NĂNG TRA CỨU INTERNET!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG KÈM TÍNH NĂNG TRA CỨU INTERNET THÔNG MINH!")
     application.run_polling()
 
 
