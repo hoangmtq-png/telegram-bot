@@ -1,4 +1,4 @@
-# === CODE HOÀN CHỈNH: CHẠY QUA OPENROUTER (MIỄN PHÍ) ===
+# === CODE HOÀN CHỈNH: OPENROUTER (META-LLAMA-3-8B FREE) + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
 import os
 import time
 import logging
@@ -26,7 +26,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Heo Đất AI (OpenRouter) đang hoạt động 24/7!"
+    return "Bot Heo Đất AI (OpenRouter Free) đang hoạt động 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -47,9 +47,8 @@ openai_client = OpenAI(
     api_key=OPENROUTER_API_KEY,
 )
 
-# Bạn có thể đổi sang các model miễn phí khác trên OpenRouter như:
-# "google/gemma-2-9b-it:free" hoặc "meta-llama/llama-3-8b-instruct:free"
-AI_MODEL = "google/gemma-2-9b-it:free"
+# Sử dụng model miễn phí đang hoạt động tốt trên OpenRouter
+AI_MODEL = "meta-llama/llama-3-8b-instruct:free"
 
 user_data_db = {}
 user_state = {}  
@@ -497,7 +496,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Bot đang chạy qua OpenRouter...")
+    logging.info("Bot đang chạy qua OpenRouter với Llama 3 Free...")
     application.run_polling()
 
 if __name__ == "__main__":
