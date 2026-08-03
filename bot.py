@@ -14,7 +14,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from google import genai
+from groq import Groq
 
 # Cấu hình logging
 logging.basicConfig(
@@ -37,12 +37,12 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# === PHẦN 2: CẤU HÌNH TOKEN VÀ AI (GEMINI) ===
+# === PHẦN 2: CẤU HÌNH TOKEN VÀ AI (GROQ - LLAMA 3) ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "THAY_API_KEY_GEMINI_VÀO_ĐÂY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
 
-# Khởi tạo Gemini Client
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+# Khởi tạo Groq Client (100% miễn phí, không giới hạn phiền phức)
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Cơ sở dữ liệu tạm thời
 user_data_db = {}
@@ -125,7 +125,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "CHAT_AI"
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         await query.message.edit_text(
-            "🚀🤖 **KÍCH HOẠT LÕI AI GEMINI PRO** 🤖🚀\n\n"
+            "🚀🤖 **KÍCH HOẠT TRỢ LÝ GROQ LLAMA 3** 🤖🚀\n\n"
             "Hệ thống trợ lý thông minh đã sẵn sàng. Bạn có thể hỏi bất cứ điều gì về cách quản lý tiền bạc, đầu tư hoặc tâm sự giải trí.\n\n"
             "*(Nhấn nút bên dưới bất cứ lúc nào để quay lại bảng điều khiển)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -163,7 +163,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state.pop(user_id, None)
         await start(update, context)
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & CHỐNG LỖI QUÁ TẢI (RATE LIMIT) ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ (SIÊU NHANH) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -183,22 +183,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Hãy trò chuyện và tư vấn thật tự nhiên như một con người thực thụ, đôi khi dùng emoji sinh động, trả lời súc tích và hữu ích."
         )
 
-        # Cơ chế thử lại tự động khi gặp lỗi quá giới hạn (Rate Limit) của gói miễn phí
-        for attempt in range(3):
-            try:
-                response = ai_client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=f"{prompt_system}\n\nNgười dùng nhắn: {text}"
-                )
-                reply_text = response.text
-                break
-            except Exception as e:
-                logging.error(f"Lần thử {attempt+1} lỗi Gemini AI: {e}")
-                if "429" in str(e) or "ResourceExhausted" in str(e):
-                    if attempt < 2:
-                        time.sleep(4)
-                        continue
-                reply_text = "⚠️ Hệ thống AI đang bận do đạt giới hạn gọi miễn phí trong phút. Bạn vui lòng đợi 30 giây rồi nhắn lại nhé!"
+        try:
+            # Gọi Groq API với model Llama 3.3 (Cực kỳ mạnh mẽ và miễn phí)
+            completion = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": prompt_system},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.7,
+                max_tokens=1024,
+            )
+            reply_text = completion.choices[0].message.content
+        except Exception as e:
+            logging.error(f"Lỗi Groq AI: {e}")
+            reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
 
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
@@ -302,7 +301,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI (Groq) đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
