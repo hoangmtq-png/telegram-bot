@@ -1,4 +1,4 @@
-# === CODE CHUẨN XỊN: GOOGLE GEMINI DIRECT + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
+# === CODE TỐC ĐỘ CAO: GOOGLE GEMINI DIRECT + TÀI CHÍNH + TÌM NHẠC + VẼ ẢNH ===
 import os
 import time
 import logging
@@ -25,7 +25,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Heo Đất AI (Gemini Direct) đang hoạt động 24/7!"
+    return "Bot Heo Đất AI (Gemini Fast) đang hoạt động 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -36,12 +36,17 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# === CẤU HÌNH TOKEN & GEMINI API KEY ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "THAY_GEMINI_API_KEY_VÀO_ĐÂY")
 
 genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Sử dụng gemini-1.5-flash với cấu hình tối ưu tốc độ phản hồi ngắn gọn
+generation_config = {
+    "temperature": 0.7,
+    "max_output_tokens": 600,
+}
+gemini_model = genai.GenerativeModel('gemini-1.5-flash', generation_config=generation_config)
 
 user_data_db = {}
 user_state = {}  
@@ -151,7 +156,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🚀🤖 **ĐÃ KÍCH HOẠT HEO ĐẤT AI (GEMINI)** 🤖🚀\n\n"
-            "Mình đã sẵn sàng hỗ trợ bạn tra cứu, trò chuyện, tìm nhạc và vẽ ảnh hoàn toàn miễn phí!\n\n"
+            "Mình đã sẵn sàng hỗ trợ bạn tra cứu, trò chuyện, tìm nhạc và vẽ ảnh cực nhanh!\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -386,13 +391,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. CHAT QUA GEMINI API TRỰC TIẾP
+        # 3. CHAT QUA GEMINI (TỐC ĐỘ CAO KHÔNG BỊ TRỄ)
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Đang suy nghĩ...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         try:
-            chat_session = gemini_model.start_chat(history=[])
-            response = chat_session.send_message(text)
+            # Gửi trực tiếp bằng generate_content thay vì start_chat để phản hồi nhanh nhất
+            response = gemini_model.generate_content(text)
             reply_text = response.text
         except Exception as e:
             logging.error(f"Lỗi Gemini API: {e}")
@@ -476,7 +481,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Bot đang chạy trực tiếp qua Gemini API...")
+    logging.info("Bot đang chạy với tối ưu tốc độ Gemini...")
     application.run_polling()
 
 if __name__ == "__main__":
