@@ -1,5 +1,5 @@
 # =====================================================================
-# HEO ĐẤT AI PRO - NÂNG CẤP BỘ NÃO AI THÔNG MINH NHƯ GROK
+# HEO ĐẤT AI PRO - NÂNG CẤP BỘ NÃO AI THÔNG MINH NHƯ GROK (ĐÃ ĐỔI TEXT)
 # =====================================================================
 import os
 import logging
@@ -313,7 +313,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang phân tích yêu cầu...")
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang soạn...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         # BỘ NÃO THÔNG MINH (AI INTENT CLASSIFIER - HOẠT ĐỘNG NHƯ GROK)
@@ -336,7 +336,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             raw_output = classification_res.choices[0].message.content.strip()
-            # Làm sạch nếu AI lỡ bọc trong markdown code block
             if raw_output.startswith("```"):
                 raw_output = raw_output.split("```")[1]
                 if raw_output.startswith("json"):
@@ -352,14 +351,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             intent = "CHAT"
             ai_payload = text
 
-        # Xóa tin nhắn đang suy nghĩ
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
             user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
         except Exception:
             pass
 
-        # THỰC THI HÀNH ĐỘNG DỰA TRÊN Ý ĐỊNH ĐÃ PHÂN TÍCH
         if intent == "IMAGE":
             encoded_prompt = urllib.parse.quote(ai_payload)
             image_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){encoded_prompt}?width=1024&height=1024&nologo=true"
@@ -391,7 +388,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Lỗi gửi nhạc: {ex}")
             return
 
-        else: # Ý định CHAT / HỎI ĐÁP THÔNG THƯỜNG
+        else: 
             bot_reply_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"🐷 Heo Đất AI:\n\n{ai_payload}",
@@ -400,7 +397,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
             return
 
-    # Xử lý sửa giao dịch tài chính
     if state.startswith("EDITING_TX_"):
         idx = int(state.split("_")[2])
         try:
@@ -431,7 +427,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state.pop(user_id, None)
         return
 
-    # Xử lý nạp thu / rút chi tài chính thông thường
     try:
         clean_text = text.lower().replace("vnđ", "").replace("đ", "").replace(",", "").strip()
         if "k" in clean_text:
