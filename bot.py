@@ -1,4 +1,4 @@
-# === TOÀN BỘ CODE CẬP NHẬT: THÔNG MINH - CHÍNH XÁC - TỰ PHÂN BIỆT YÊU CẦU ===
+# === TOÀN BỘ CODE CẬP NHẬT: SỬA CÂU THÔNG BÁO "ĐANG TRẢ LỜI" ===
 import os
 import time
 import logging
@@ -418,7 +418,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
             return
 
-        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH (Chỉ kích hoạt khi user thực sự muốn lấy file)
+        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH
         song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file"]
         is_song_request = any(keyword in text_lower for keyword in song_action_keywords)
 
@@ -458,8 +458,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. XỬ LÝ CHAT VĂN BẢN (TRẢ LỜI THÔNG TIN CHÍNH XÁC, CỦA AI NÀO, TÁC GIẢ NÀO)
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang xử lý...")
+        # 3. XỬ LÝ CHAT VĂN BẢN (ĐÃ ĐỔI THÔNG BÁO THÀNH "ĐANG TRẢ LỜI")
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         now = datetime.now()
@@ -672,7 +672,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI (Thông minh - Phân biệt rạch ròi) đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
