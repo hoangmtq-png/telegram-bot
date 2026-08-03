@@ -48,6 +48,7 @@ user_data_db = {}
 user_state = {}  
 user_chat_histories = {} 
 user_ai_messages = {}
+user_all_chat_msg_ids = {} # Lưu toàn bộ tin nhắn trong phiên chat AI để xóa khi đóng
 
 # === PHẦN 3: HÀM TẠO GIAO DIỆN MENU CHÍNH ===
 def get_main_menu_content(user_id):
@@ -125,20 +126,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "add_income":
         user_state[user_id] = "WAITING_INCOME"
-        await query.message.reply_text("📥 **NHẬP KHOẢN THU:** Vui lòng gửi số tiền (Ví dụ: `500k`, `2tr`, hoặc `500000`):", parse_mode="Markdown")
+        msg = await query.message.reply_text("📥 **NHẬP KHOẢN THU:** Vui lòng gửi số tiền (Ví dụ: `500k`, `2tr`, hoặc `500000`):", parse_mode="Markdown")
+        user_ai_messages[user_id] = [msg.message_id]
     elif query.data == "add_expense":
         user_state[user_id] = "WAITING_EXPENSE"
-        await query.message.reply_text("📤 **NHẬP KHOẢN CHI:** Vui lòng gửi số tiền (Ví dụ: `50k`, `100000`):", parse_mode="Markdown")
+        msg = await query.message.reply_text("📤 **NHẬP KHOẢN CHI:** Vui lòng gửi số tiền (Ví dụ: `50k`, `100000`):", parse_mode="Markdown")
+        user_ai_messages[user_id] = [msg.message_id]
     elif query.data == "chat_ai_mode":
         user_state[user_id] = "CHAT_AI"
+        user_all_chat_msg_ids[user_id] = [] # Khởi tạo danh sách lưu tin nhắn trong phiên chat AI
+        
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
-        await query.message.edit_text(
+        intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
             "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình tìm hình ảnh, link phim, tra cứu thông tin, giải đáp mọi thắc mắc hoặc quản lý tài chính.\n\n"
-            "*(Nhấn nút bên dưới để đóng giao diện chat và về menu chính)*",
+            "💡 *Mẹo: Bạn có thể chat trực tiếp hoặc gõ 'đóng khung chat' / bấm nút bên dưới để đóng và dọn sạch tin nhắn.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+        user_all_chat_msg_ids[user_id].append(intro_msg.message_id)
+        
+        # Xóa tin nhắn menu cũ đi để khung chat AI gọn gàng độc lập
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
     elif query.data == "view_history":
         history = user_data_db[user_id]["history"][-5:]
         if not history:
@@ -172,6 +185,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
         
+        # Xóa toàn bộ tin nhắn đã trao đổi trong khung chat AI khi bấm nút đóng
+        if user_id in user_all_chat_msg_ids:
+            for msg_id in user_all_chat_msg_ids[user_id]:
+                try:
+                    await context.bot.delete_message(chat_id=query.message.chat_id, message_id=msg_id)
+                except Exception:
+                    pass
+            user_all_chat_msg_ids[user_id] = []
+
         if user_id in user_ai_messages:
             for msg_id in user_ai_messages[user_id]:
                 try:
@@ -188,10 +210,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, reply_markup = get_main_menu_content(user_id)
         await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ (ĐÃ TỐI ƯU CHỐNG TREO) ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN & TÍNH NĂNG ĐÓNG KHUNG CHAT BẰNG LỜI NÓI ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
+    chat_id = update.effective_chat.id
 
     if user_id not in user_state:
         user_state[user_id] = "CHAT_AI"
@@ -199,11 +222,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🐷 Heo Đất AI đang trả lời...")
-        
-        if user_id not in user_ai_messages:
-            user_ai_messages[user_id] = []
-        user_ai_messages[user_id].append(thinking_msg.message_id)
+        # 1. Kiểm tra nếu người dùng yêu cầu đóng khung chat bằng lời nói
+        close_keywords = ["đóng khung chat", "đóng chat", "thoát ai", "về menu", "đóng lại"]
+        if any(keyword in text.lower() for keyword in close_keywords):
+            # Xóa tin nhắn yêu cầu đóng của người dùng
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+
+            # Xóa toàn bộ lịch sử tin nhắn trong khung chat AI
+            if user_id in user_all_chat_msg_ids:
+                for msg_id in user_all_chat_msg_ids[user_id]:
+                    try:
+                        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception:
+                        pass
+                user_all_chat_msg_ids[user_id] = []
+
+            user_state.pop(user_id, None)
+            if user_id in user_chat_histories:
+                user_chat_histories[user_id] = []
+
+            # Hiện lại menu chính sạch sẽ
+            text_menu, reply_markup = get_main_menu_content(user_id)
+            await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode="Markdown")
+            return
+
+        # 2. Xử lý chat AI bình thường
+        try:
+            user_msg_id = update.message.message_id
+            if user_id not in user_all_chat_msg_ids:
+                user_all_chat_msg_ids[user_id] = []
+            user_all_chat_msg_ids[user_id].append(user_msg_id)
+            
+            # Xóa ngay tin nhắn câu hỏi của user để khung chat luôn gọn chỉ hiển thị câu trả lời của AI (hoặc giữ lại tùy ý, ở đây code đang xóa tin nhắn user và hiển thị câu trả lời)
+            await update.message.delete()
+        except Exception:
+            pass
+
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
+        user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         now = datetime.now()
         current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
@@ -242,20 +301,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Lỗi Groq AI: {e}")
             reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
 
-        # Cơ chế phòng thủ chống lỗi Markdown làm sập tiến trình phản hồi
+        # Xóa thông báo "đang trả lời" và gửi câu trả lời hoàn chỉnh
         try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=thinking_msg.message_id,
-                text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
-                parse_mode="Markdown"
-            )
+            await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
+            user_all_chat_msg_ids[user_id].remove(thinking_msg.message_id)
         except Exception:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=thinking_msg.message_id,
-                text=f"🐷 Heo Đất AI:\n\n{reply_text}"
-            )
+            pass
+
+        bot_reply_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
+            parse_mode="Markdown"
+        )
+        user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
         return
 
     # XỬ LÝ NHẬP TIỀN THU / CHI
@@ -268,8 +326,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             amount = float(clean_text)
     except ValueError:
-        await update.message.reply_text("❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại rõ ràng (Ví dụ: `50k`, `2tr`, hoặc `100000`).")
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại rõ ràng (Ví dụ: `50k`, `2tr`, hoặc `100000`).", parse_mode="Markdown")
+        user_ai_messages[user_id] = [err_msg.message_id]
         return
+
+    if user_id in user_ai_messages:
+        for msg_id in user_ai_messages[user_id]:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception:
+                pass
+        user_ai_messages[user_id] = []
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
     current_time = datetime.now().strftime("%H:%M")
 
@@ -277,13 +353,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data_db[user_id]["daily_income"] += amount
         user_data_db[user_id]["yearly_income"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Thu", "amount": amount})
-        await update.message.reply_text(f"✅ Nạp quỹ thành công: `+{amount:,.0f} đ` vào **Thu Nhập**! 🐷💰", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ Nạp quỹ thành công: `+{amount:,.0f} đ` vào **Thu Nhập**! 🐷💰", parse_mode="Markdown")
         
     elif state == "WAITING_EXPENSE":
         user_data_db[user_id]["daily_expense"] += amount
         user_data_db[user_id]["yearly_expense"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Chi", "amount": amount})
-        await update.message.reply_text(f"✅ Ghi nhận giao dịch: `-{amount:,.0f} đ` vào **Chi Tiêu**! 💸", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ Ghi nhận giao dịch: `-{amount:,.0f} đ` vào **Chi Tiêu**! 💸", parse_mode="Markdown")
 
     user_state.pop(user_id, None)
 
@@ -338,6 +414,7 @@ async def send_yearly_report(application):
 
 def schedule_jobs(application):
     scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
+    # Cấu hình lịch tự động chạy lúc 00:00 mỗi ngày
     scheduler.add_job(lambda: application.create_task(send_daily_report(application)), 'cron', hour=0, minute=0)
     scheduler.add_job(lambda: application.create_task(send_yearly_report(application)), 'cron', month=12, day=31, hour=0, minute=0)
     scheduler.start()
