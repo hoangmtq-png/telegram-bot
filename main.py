@@ -318,7 +318,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1. TÍNH NĂNG VẼ ẢNH
         image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh"]
         if any(keyword in text_lower for keyword in image_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang tạo ảnh theo yêu cầu...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang vẽ ảnh...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             encoded_prompt = urllib.parse.quote(text)
@@ -368,8 +368,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama3 qua Groq)
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang phân tích...")
+        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama-3.1 qua Groq)
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang soạn...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         try:
@@ -384,7 +384,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "content": text
                     }
                 ],
-                model="llama3-70b-8192",
+                model="llama-3.1-70b-versatile", # Đã sửa model tại đây
             )
             reply_text = chat_completion.choices[0].message.content
         except Exception as e:
