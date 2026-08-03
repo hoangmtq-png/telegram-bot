@@ -1,3 +1,4 @@
+# === TOÀN BỘ CODE HOÀN CHỈNH: BOT HEO ĐẤT AI (GROQ) ===
 import os
 import time
 import logging
@@ -133,10 +134,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         await query.message.edit_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình:\n"
-            "• Tìm kiếm thông tin, kiến thức bất kỳ.\n"
-            "• Tìm link hình ảnh, link phim, video giải trí.\n"
-            "• Hỗ trợ tài chính, viết lách, lập trình, tâm sự...\n\n"
+            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình tìm hình ảnh, link phim, tra cứu thông tin, giải đáp mọi thắc mắc hoặc quản lý tài chính.\n\n"
             "*(Nhấn nút bên dưới để đóng giao diện chat và về menu chính)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -190,7 +188,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, reply_markup = get_main_menu_content(user_id)
         await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ (ĐÃ TỐI ƯU CHỐNG TREO) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -201,7 +199,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🐷 `Heo Đất AI đang tìm kiếm thông tin...`")
+        thinking_msg = await update.message.reply_text("🐷 Heo Đất AI đang trả lời...")
         
         if user_id not in user_ai_messages:
             user_ai_messages[user_id] = []
@@ -214,11 +212,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         prompt_system = (
             f"Hôm nay là {current_weekday}, {current_time_str}. "
-            "Bạn tên là Heo Đất AI, một trợ lý thông minh đa năng tối thượng. "
-            "Bạn có khả năng trả lời mọi câu hỏi, tìm kiếm hình ảnh, cung cấp các đường link xem phim, video, trang web, tra cứu thông tin thời sự, kiến thức, lập trình và tài chính. "
-            "Khi người dùng yêu cầu tìm hình ảnh, hãy tìm và cung cấp link hình ảnh trực tiếp (định dạng URL ảnh) hoặc hướng dẫn cụ thể. "
-            "Khi người dùng yêu cầu tìm phim/video, hãy cung cấp tên chính xác kèm theo link xem phim/trailer (ví dụ link YouTube, Netflix, v.v.). "
-            "Hãy trả lời thông minh, thân thiện, rõ ràng bằng định dạng Markdown đẹp mắt."
+            "Bạn tên là Heo Đất AI, trợ lý thông minh đa năng. "
+            "Hãy lưu ý rằng bạn là mô hình ngôn ngữ AI, không có khả năng tự động tra cứu dữ liệu thời gian thực hay số điện thoại cá nhân trên mạng để bảo mật thông tin. "
+            "Hãy trả lời thông minh, thân thiện và rõ ràng."
         )
 
         if user_id not in user_chat_histories:
@@ -246,12 +242,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Lỗi Groq AI: {e}")
             reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
 
-        await context.bot.edit_message_text(
-            chat_id=update.effective_chat.id,
-            message_id=thinking_msg.message_id,
-            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
-            parse_mode="Markdown"
-        )
+        # Cơ chế phòng thủ chống lỗi Markdown làm sập tiến trình phản hồi
+        try:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=thinking_msg.message_id,
+                text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            await context.bot.edit_message_text(
+                chat_id=update.effective_chat.id,
+                message_id=thinking_msg.message_id,
+                text=f"🐷 Heo Đất AI:\n\n{reply_text}"
+            )
         return
 
     # XỬ LÝ NHẬP TIỀN THU / CHI
