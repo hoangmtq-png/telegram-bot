@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (WITH WEB SEARCH AGENT)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (WITH SMART WEB SEARCH AGENT)
 # ====================================================================================================
 
 import os
@@ -342,18 +342,34 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         except Exception:
             pass
 
-        # Hiển thị trạng thái đang tìm kiếm web
-        thinking = await context.bot.send_message(chat_id=chat_id, text="🔍 Heo Đất AI đang tra cứu Google...")
+        thinking = await context.bot.send_message(chat_id=chat_id, text="Đang soạn...")
         enterprise_message_tracker[user_id].append(thinking.message_id)
 
-        # 1. Tự động tìm kiếm thông tin trên web dựa trên câu hỏi của người dùng
-        search_data = enterprise_search_web(raw_text)
+        # 1. Tự động tối ưu từ khóa tìm kiếm
+        search_query = raw_text
+        if groq_client:
+            try:
+                keyword_res = groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "Bạn là chuyên gia tối ưu từ khóa tìm kiếm. Hãy rút gọn câu hỏi của người dùng thành từ khóa tìm kiếm Google ngắn gọn, chính xác nhất (chỉ trả về đúng từ khóa, không kèm lời giải thích)."},
+                        {"role": "user", "content": raw_text}
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.1
+                )
+                search_query = keyword_res.choices[0].message.content.strip()
+            except Exception:
+                pass
 
-        # 2. Đưa kết quả tìm kiếm vào prompt gửi cho LLM (Groq)
+        # 2. Tìm kiếm web dựa trên từ khóa đã tối ưu
+        search_data = enterprise_search_web(search_query)
+
+        # 3. Tổng hợp trả lời
         prompt_with_context = (
-            f"Dữ liệu tra cứu trực tuyến từ internet cho câu hỏi '{raw_text}':\n"
+            f"Câu hỏi gốc của người dùng: '{raw_text}'\n"
+            f"Dữ liệu tra cứu trực tuyến từ internet cho từ khóa '{search_query}':\n"
             f"{search_data}\n\n"
-            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi của người dùng một cách chính xác, sắc sảo và đầy đủ nhất."
+            f"Yêu cầu: Hãy dựa vào dữ liệu internet ở trên kết hợp kiến thức của bạn để trả lời câu hỏi một cách chính xác, ngắn gọn và mạch lạc."
         )
 
         reply_content = raw_text
@@ -369,12 +385,11 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 )
                 reply_content = res.choices[0].message.content
                 
-                # Lưu lịch sử chat thuần túy
                 enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
                 enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
             except Exception as e:
                 logger.error(f"Groq API Error: {e}")
-                reply_content = f"Đã tra cứu được thông tin nhưng gặp lỗi xử lý AI: {search_data}"
+                reply_content = f"Đã tra cứu được thông tin nhưng gặp lỗi xử lý AI."
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
