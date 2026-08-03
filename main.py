@@ -368,7 +368,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama-3.1 qua Groq)
+        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama-3.3 qua Groq)
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang soạn...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
@@ -384,7 +384,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "content": text
                     }
                 ],
-                model="llama-3.1-70b-versatile", # Đã sửa model tại đây
+                model="llama-3.3-70b-versatile", # Đã cập nhật model mới nhất của Groq
             )
             reply_text = chat_completion.choices[0].message.content
         except Exception as e:
