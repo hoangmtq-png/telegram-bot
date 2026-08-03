@@ -48,7 +48,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 user_data_db = {}
 user_state = {}  # Lưu trạng thái: 'WAITING_INCOME', 'WAITING_EXPENSE', 'CHAT_AI'
 
-# === PHẦN 3: MENU CHÍNH HITECH & HIỆU ỨNG SINH ĐỘNG ===
+# === PHẦN 3: MENU CHÍNH HITECH & ĐẲNG CẤP ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in user_data_db:
@@ -62,28 +62,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     d_exp = user_data_db[user_id]["daily_expense"]
     balance = d_inc - d_exp
 
-    # Hiệu ứng thanh tiến trình dòng tiền chuyển động linh hoạt
+    # Hiệu ứng thanh tiến trình dòng tiền trực quan
     total_flow = d_inc + d_exp
     if total_flow > 0:
         inc_percent = int((d_inc / total_flow) * 10)
-        progress_bar = "🟢" * inc_percent + "🔴" * (10 - inc_percent)
+        progress_bar = "🟩" * inc_percent + "🟥" * (10 - inc_percent)
     else:
-        progress_bar = "⏳ CHỜ GIAO DỊCH ĐẦU TIÊN..."
+        progress_bar = "⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️"
 
-    # Giao diện menu phong cách bảng điều khiển tài chính (Dashboard)
+    # Giao diện menu thiết kế dạng thẻ hitech tối tân
     text = (
-        "┏━━━━ 💎 **HEO ĐẤT FINTECH OS** 💎 ━━━━┓\n\n"
-        "⚡ `[SYSTEM]` **TRẠNG THÁI VÍ HÔM NAY**\n"
-        f"├ 📥 **Thu Nhập:** `{d_inc:,.0f} đ`\n"
-        f"├ 📤 **Chi Tiêu:** `{d_exp:,.0f} đ`\n"
-        f"└ 💰 **Số Dư:** `{balance:,.0f} đ`\n\n"
-        f"📊 **Biểu Đồ Dòng Tiền:**\n`{progress_bar}`\n\n"
-        "💡 *Chạm vào các phím điều khiển bên dưới để tương tác:*"
+        "╔═══════════════════════════╗\n"
+        "      💎 **H E O  Đ Ấ T  P R O  O S** 💎      \n"
+        "╚═══════════════════════════╝\n\n"
+        "⚡ **BẢNG ĐIỀU KHIỂN TÀI CHÍNH** ⚡\n"
+        f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
+        f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
+        f"  💎 **Số Dư:** `{balance:,.0f} đ`\n\n"
+        f"📊 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
+        "🔥 *Lựa chọn tác vụ phía dưới để tiếp tục:*"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("➕ 📥 NẠP TIỀN", callback_data="add_income"),
+            InlineKeyboardButton("➕ 📥 NẠP THU", callback_data="add_income"),
             InlineKeyboardButton("➖ 📤 RÚT CHI", callback_data="add_expense"),
         ],
         [
@@ -91,7 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
         ],
         [
-            InlineKeyboardButton("🤖 💬 TRỢ LÝ AI TƯ VẤN TÀI CHÍNH", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 TRỢ LÝ AI LỰA CHỌN", callback_data="chat_ai_mode"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -102,11 +104,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
-# === PHẦN 4: XỬ LÝ NÚT BẤM (CALLBACK QUERY) ===
+# === PHẦN 4: XỬ LÝ NÚT BẤM (CALLBACK QUERY) & XÓA TIN NHẮN GỌN GÀNG ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    chat_id = query.message.chat_id
 
     if user_id not in user_data_db:
         user_data_db[user_id] = {
@@ -125,9 +128,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "CHAT_AI"
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         await query.message.edit_text(
-            "🚀🤖 **KÍCH HOẠT TRỢ LÝ GROQ LLAMA 3** 🤖🚀\n\n"
-            "Hệ thống trợ lý thông minh đã sẵn sàng. Bạn có thể hỏi bất cứ điều gì về cách quản lý tiền bạc, đầu tư hoặc tâm sự giải trí.\n\n"
-            "*(Nhấn nút bên dưới bất cứ lúc nào để quay lại bảng điều khiển)*",
+            "🚀🤖 **KÍCH HOẠT TRỢ LÝ AI GROQ LLAMA 3** 🤖🚀\n\n"
+            "Hệ thống lõi thông minh đã sẵn sàng. Bạn có thể hỏi bất cứ điều gì về tài chính, đầu tư hoặc tâm sự giải trí.\n\n"
+            "*(Nhấn nút bên dưới để đóng giao diện chat và làm sạch khung hình)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -155,15 +158,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🟢 Tổng Thu Tích Lũy: `{y_inc:,.0f} đ`\n"
             f"🔴 Tổng Chi Tiêu: `{y_exp:,.0f} đ`\n"
             f"💎 **Số Dư Thực Tế:** `{y_balance:,.0f} đ`\n\n"
-            f"🎯 *Dữ liệu tài chính được mã hóa và bảo mật tuyệt đối!*",
+            f"🎯 *Dữ liệu đã được mã hóa an toàn!*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
     elif query.data == "back_home":
         user_state.pop(user_id, None)
+        # Xóa tin nhắn khung chat AI cũ để khung chat gọn gàng hoàn toàn
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        # Gửi lại menu chính hoàn toàn mới phía dưới
         await start(update, context)
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ (SIÊU NHANH) ===
+# === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -175,7 +184,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # TRƯỜNG HỢP 1: ĐANG CHAT VỚI AI
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🤖 `[AI]` Trợ lý đang phân tích dữ liệu...")
+        thinking_msg = await update.message.reply_text("🤖 `[AI]` Trợ lý đang xử lý phản hồi...")
         reply_text = ""
         
         prompt_system = (
@@ -184,7 +193,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         try:
-            # Gọi Groq API với model Llama 3.3 (Cực kỳ mạnh mẽ và miễn phí)
             completion = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
@@ -197,7 +205,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text = completion.choices[0].message.content
         except Exception as e:
             logging.error(f"Lỗi Groq AI: {e}")
-            reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
+            reply_text = "⚠️ Hệ thống AI đang bận chút xíu do lượng truy cập, bạn nhắn lại giúp mình nhé!"
 
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
@@ -217,7 +225,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             amount = float(clean_text)
     except ValueError:
-        await update.message.reply_text("❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại (Ví dụ: `50k`, `2tr`, hoặc `100000`).")
+        await update.message.reply_text("❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại rõ ràng (Ví dụ: `50k`, `2tr`, hoặc `100000`).")
         return
 
     current_time = datetime.now().strftime("%H:%M")
@@ -249,7 +257,7 @@ async def send_daily_report(application):
             f"🟢 Tổng thu hôm nay: `{inc:,.0f} đ`\n"
             f"🔴 Tổng chi hôm nay: `{exp:,.0f} đ`\n"
             f"💰 Số dư chốt sổ: `{balance:,.0f} đ`\n\n"
-            f"🍀 Chúc bạn có một giấc ngủ thật ngon, và mong rằng ngày mới đến sẽ mang lại cho bạn thật nhiều may mắn, cơ hội tài lộc và gặt hái bội thu hơn nữa nhé! 🚀✨"
+            f"🍀 Chúc bạn có một giấc ngủ thật ngon, ngày mai đón tài lộc bội thu nhé! 🚀✨"
         )
         try:
             await application.bot.send_message(chat_id=user_id, text=report_text, parse_mode="Markdown")
@@ -269,11 +277,11 @@ async def send_yearly_report(application):
         
         report_text = (
             f"🎉🎆 **TỔNG KẾT TÀI CHÍNH TOÀN BỘ NĂM {current_year}** 🎆🎉\n\n"
-            f"🎯 Một hành trình dài đã khép lại, đây là thành quả tuyệt vời của bạn:\n"
+            f"🎯 Thành quả tuyệt vời của bạn trong năm qua:\n"
             f"🟢 Tổng thu cả năm: `{y_inc:,.0f} đ`\n"
             f"🔴 Tổng chi cả năm: `{y_exp:,.0f} đ`\n"
-            f"💰 Tổng dư tích lũy trong heo đất: `{y_balance:,.0f} đ`\n\n"
-            f"🏆 Chúc mừng bạn đã xuất sắc vượt qua cả năm nỗ lực. Chào đón năm mới tiền tài như nước, phát tài phát lộc! 🚀🧧"
+            f"💰 Tổng dư tích lũy: `{y_balance:,.0f} đ`\n\n"
+            f"🏆 Chúc mừng bạn đã xuất sắc! Chào đón năm mới tiền tài như nước! 🚀🧧"
         )
         try:
             await application.bot.send_message(chat_id=user_id, text=report_text, parse_mode="Markdown")
