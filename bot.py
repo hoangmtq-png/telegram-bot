@@ -41,21 +41,19 @@ def keep_alive():
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
 
-# Khởi tạo Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Cơ sở dữ liệu tạm thời (Thêm trường đếm ngày tiết kiệm)
 user_data_db = {}
-user_state = {}  # Lưu trạng thái: 'WAITING_INCOME', 'WAITING_EXPENSE', 'CHAT_AI'
+user_state = {}  
+user_chat_histories = {} 
 
-# === PHẦN 3: MENU CHÍNH HITECH & TÍCH LŨY TỪNG NGÀY ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+# === PHẦN 3: HÀM TẠO GIAO DIỆN MENU CHÍNH ===
+def get_main_menu_content(user_id):
     if user_id not in user_data_db:
         user_data_db[user_id] = {
             "daily_income": 0.0, "daily_expense": 0.0,
             "yearly_income": 0.0, "yearly_expense": 0.0,
-            "saved_days": 1,  # Khởi tạo mặc định từ 1 ngày tiết kiệm
+            "saved_days": 1,
             "history": []
         }
 
@@ -64,7 +62,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     balance = d_inc - d_exp
     saved_days = user_data_db[user_id]["saved_days"]
 
-    # Hiệu ứng thanh tiến trình dòng tiền trực quan
     total_flow = d_inc + d_exp
     if total_flow > 0:
         inc_percent = int((d_inc / total_flow) * 10)
@@ -72,7 +69,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         progress_bar = "⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️"
 
-    # Giao diện menu thiết kế dạng thẻ hitech tích hợp số tiền tích lũy và số ngày
     text = (
         "╔═══════════════════════════╗\n"
         "      💎 **H E O  Đ Ấ T  P R O  O S** 💎      \n"
@@ -80,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ **BẢNG ĐIỀU KHIỂN TÀI CHÍNH** ⚡\n"
         f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
         f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
-        f"  💎 **Số Dư HôM Nay:** `{balance:,.0f} đ`\n\n"
+        f"  💎 **Số Dư Hôm Nay:** `{balance:,.0f} đ`\n\n"
         f"📊 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
         f"💰 **Tích lũy thực tế:** Đã cất dành được `{balance:,.0f} đ` qua **{saved_days} ngày** (đã trừ hết các khoản chi)!\n\n"
         "🔥 *Lựa chọn tác vụ phía dưới để tiếp tục:*"
@@ -96,10 +92,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
         ],
         [
-            InlineKeyboardButton("🤖 💬 TRỢ LÝ AI LỰA CHỌN", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI TRÒ CHUYỆN", callback_data="chat_ai_mode"),
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return text, InlineKeyboardMarkup(keyboard)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text, reply_markup = get_main_menu_content(user_id)
 
     if update.callback_query:
         await update.callback_query.message.edit_text(text, reply_markup=reply_markup, parse_mode="Markdown")
@@ -107,7 +107,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
-# === PHẦN 4: XỬ LÝ NÚT BẤM (CALLBACK QUERY) & XÓA TIN NHẮN GỌN GÀNG ===
+# === PHẦN 4: XỬ LÝ NÚT BẤM (CALLBACK QUERY) ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -131,9 +131,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "CHAT_AI"
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         await query.message.edit_text(
-            "🚀🤖 **KÍCH HOẠT TRỢ LÝ AI GROQ LLAMA 3** 🤖🚀\n\n"
-            "Hệ thống lõi thông minh đã sẵn sàng. Bạn có thể hỏi bất cứ điều gì về tài chính, đầu tư hoặc tâm sự giải trí.\n\n"
-            "*(Nhấn nút bên dưới để đóng giao diện chat và làm sạch khung hình)*",
+            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI** 🤖🚀\n\n"
+            "Mình là Heo Đất AI, trợ lý tài chính và người bạn đồng hành của bạn. Hãy hỏi mình bất cứ điều gì nhé!\n\n"
+            "*(Nhấn nút bên dưới để đóng giao diện chat và về menu chính)*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -167,11 +167,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif query.data == "back_home":
         user_state.pop(user_id, None)
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
-        await start(update, context)
+        if user_id in user_chat_histories:
+            user_chat_histories[user_id] = []
+        
+        # Sửa lỗi: Cập nhật trực tiếp khung tin nhắn hiện tại thành Menu chính thay vì cố xóa
+        text, reply_markup = get_main_menu_content(user_id)
+        await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
 # === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,40 +184,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = user_state[user_id]
 
-    # TRƯỜNG HỢP 1: ĐANG CHAT VỚI AI
     if state == "CHAT_AI":
-        thinking_msg = await update.message.reply_text("🤖 `[AI]` Trợ lý đang xử lý phản hồi...")
-        reply_text = ""
+        thinking_msg = await update.message.reply_text("🐷 `Heo Đất AI đang trả lời...`")
         
+        now = datetime.now()
+        current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
+        days_vn = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"]
+        current_weekday = days_vn[now.weekday()]
+
         prompt_system = (
-            "Bạn là một trợ lý tài chính kiêm người bạn thân thiết, vui vẻ, thông minh và hài hước trong một bot Telegram quản lý tài chính cá nhân. "
-            "Hãy trò chuyện và tư vấn thật tự nhiên như một con người thực thụ, đôi khi dùng emoji sinh động, trả lời súc tích và hữu ích."
+            f"Hôm nay là {current_weekday}, {current_time_str}. "
+            "Bạn tên là Heo Đất AI, một trợ lý tài chính kiêm người bạn thân thiết, thông minh, đa ngôn ngữ và cực kỳ tận tâm. "
+            "Hãy ghi nhớ ngữ cảnh trò chuyện để trả lời tự nhiên, chính xác, thân thiện."
         )
 
+        if user_id not in user_chat_histories:
+            user_chat_histories[user_id] = []
+
+        user_chat_histories[user_id].append({"role": "user", "content": text})
+        
+        if len(user_chat_histories[user_id]) > 10:
+            user_chat_histories[user_id] = user_chat_histories[user_id][-10:]
+
         try:
+            messages = [{"role": "system", "content": prompt_system}] + user_chat_histories[user_id]
+            
             completion = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": prompt_system},
-                    {"role": "user", "content": text}
-                ],
+                messages=messages,
                 temperature=0.7,
                 max_tokens=1024,
             )
             reply_text = completion.choices[0].message.content
+            
+            user_chat_histories[user_id].append({"role": "assistant", "content": reply_text})
+
         except Exception as e:
             logging.error(f"Lỗi Groq AI: {e}")
-            reply_text = "⚠️ Hệ thống AI đang bận chút xíu do lượng truy cập, bạn nhắn lại giúp mình nhé!"
+            reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
 
         await context.bot.edit_message_text(
             chat_id=update.effective_chat.id,
             message_id=thinking_msg.message_id,
-            text=f"🤖 **Trợ Lý AI:**\n\n{reply_text}",
+            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
             parse_mode="Markdown"
         )
         return
 
-    # TRƯỜNG HỢP 2 & 3: ĐANG NHẬP THU NHẬP HOẶC CHI TIÊU
+    # XỬ LÝ NHẬP TIỀN THU / CHI
     try:
         clean_text = text.lower().replace("vnđ", "").replace("đ", "").replace("d", "").replace(",", "").replace(".", "").strip()
         if "k" in clean_text:
@@ -265,7 +280,6 @@ async def send_daily_report(application):
         except Exception as e:
             logging.error(f"Lỗi gửi báo cáo ngày cho {user_id}: {e}")
         
-        # Reset số liệu ngày cũ nhưng cộng dồn ngày tiết kiệm lên
         data["daily_income"] = 0.0
         data["daily_expense"] = 0.0
         data["saved_days"] += 1
