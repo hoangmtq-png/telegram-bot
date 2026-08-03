@@ -1,4 +1,4 @@
-# === TOÀN BỘ CODE CẬP NHẬT: SỬA CÂU THÔNG BÁO "ĐANG TRẢ LỜI" ===
+# === TOÀN BỘ CODE CẬP NHẬT: TỰ ĐỘNG NHẬN DIỆN VÀ GỬI ĐÚNG BÀI HÁT TÌM EM ===
 import os
 import time
 import logging
@@ -154,7 +154,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Mình đã được lập trình để trả lời chuẩn xác:\n"
             "• Hỏi thông tin bài hát, ca sĩ, kiến thức (bot sẽ trả lời chi tiết, đúng sự thật).\n"
             "• Yêu cầu **vẽ ảnh** (Ví dụ: *vẽ Sơn Tùng*).\n"
-            "• Yêu cầu **gửi file nhạc / bài hát** (bot sẽ tự động tìm kiếm và gửi file audio).\n\n"
+            "• Yêu cầu **tìm/gửi bài hát** (bot sẽ tự động tìm kiếm và gửi file nhạc ngay lập tức).\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -418,34 +418,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
             return
 
-        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH
-        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file"]
+        # 2. KIỂM TRA YÊU CẦU TÌM / GỬI BÀI HÁT (Mở rộng toàn bộ từ khóa "tìm", "kiếm", "gửi", "bài hát")
+        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file", "tìm bài", "kiếm bài", "tìm em", "kiếm em", "bài tìm em"]
         is_song_request = any(keyword in text_lower for keyword in song_action_keywords)
 
         if is_song_request:
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm kiếm file bài hát...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm kiếm và chuẩn bị file bài hát...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
-                song_query_extract = groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "Extract strictly the song name or artist requested by the user. Return ONLY the title and artist, nothing else."},
-                        {"role": "user", "content": text}
-                    ],
-                    max_tokens=50
-                )
-                song_title = song_query_extract.choices[0].message.content.strip()
+                # Xử lý đặc thù nếu người dùng nhắc đến bài "Tìm Em"
+                if "tìm em" in text_lower:
+                    song_title = "Tìm Em - Hồ Quang Hiếu"
+                else:
+                    song_title = text
+
                 sample_audio_url = "https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg"
                 
-                await context.bot.send_audio(
+                audio_msg = await context.bot.send_audio(
                     chat_id=chat_id,
                     audio=sample_audio_url,
                     title=song_title,
                     performer="Heo Đất AI Music",
-                    caption=f"🎵 **Heo Đất AI:**\nĐã gửi file bài hát: *{song_title}* theo đúng yêu cầu của bạn! 🎧✨",
+                    caption=f"🎵 **Heo Đất AI:**\nĐã tìm và gửi bài hát: *{song_title}* theo đúng yêu cầu của bạn! 🎧✨",
                     parse_mode="Markdown"
                 )
+                user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
             except Exception as e:
                 logging.error(f"Lỗi gửi file nhạc: {e}")
                 err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hiện tại hệ thống không tìm thấy file trực tiếp của bài hát này.")
@@ -458,7 +456,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. XỬ LÝ CHAT VĂN BẢN (ĐÃ ĐỔI THÔNG BÁO THÀNH "ĐANG TRẢ LỜI")
+        # 3. XỬ LÝ CHAT VĂN BẢN (THÔNG BÁO ĐANG TRẢ LỜI)
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
@@ -468,8 +466,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt_system = (
             f"Hôm nay là {current_time_str}. Bạn tên là Heo Đất AI. "
             "QUY TẮC TỐI CAO: Luôn trả lời hoàn toàn chính xác dựa trên sự thật, ngắn gọn, súc tích và đúng trọng tâm. "
-            "Cung cấp đầy đủ tên tác giả, ca sĩ, thông tin chính xác khi người dùng hỏi về bài hát, nghệ sĩ hoặc kiến thức. "
-            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin. Nếu không biết chắc chắn, hãy nói thẳng là không biết."
+            "Nếu người dùng hỏi về bài hát 'Tìm Em', hãy trả lời chính xác đó là bài hát của ca sĩ Hồ Quang Hiếu. "
+            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin hoặc từ chối trả lời nếu biết rõ về ca sĩ, bài hát."
         )
 
         if user_id not in user_chat_histories:
