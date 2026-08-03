@@ -154,7 +154,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI ĐA NĂNG** 🤖🚀\n\n"
-            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình tìm hình ảnh, link phim, tra cứu thông tin hoặc trò chuyện.\n\n"
+            "Mình là Heo Đất AI siêu cấp đa năng! Bạn có thể yêu cầu mình giải đáp mọi thắc mắc hoặc trò chuyện.\n\n"
             "💡 *Mẹo: Gõ 'đóng khung chat' hoặc bấm nút bên dưới để đóng và dọn sạch tin nhắn.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -180,7 +180,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif data == "view_detail_ledger":
-        # Sổ chi tiết đầy đủ cho phép Xóa / Sửa giao dịch
         history = user_data_db[user_id]["history"]
         if not history:
             keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
@@ -205,7 +204,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = user_data_db[user_id]["history"]
         if idx < len(history):
             tx = history.pop(idx)
-            # Hoàn lại tiền vào quỹ
             if tx['type'] == "Thu":
                 user_data_db[user_id]["daily_income"] -= tx['amount']
                 user_data_db[user_id]["yearly_income"] -= tx['amount']
@@ -215,7 +213,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.answer("Đã xóa giao dịch thành công!", show_alert=False)
         
-        # Load lại Sổ chi tiêu sau khi xóa
         history = user_data_db[user_id]["history"]
         if not history:
             keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
@@ -256,10 +253,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     elif data == "back_home":
+        # Gửi câu tạm biệt ngọt ngào trước khi xóa và về menu
+        try:
+            bye_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
+                parse_mode="Markdown"
+            )
+            # Tạm dừng 1.5 giây để người dùng kịp đọc câu tạm biệt
+            time.sleep(0.5)
+            # Xóa luôn cả tin nhắn tạm biệt này để khung chat hoàn toàn sạch sẽ
+            await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
+        except Exception:
+            pass
+
         user_state.pop(user_id, None)
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
         
+        # Xóa toàn bộ lịch sử tin nhắn trong khung chat AI
         if user_id in user_all_chat_msg_ids:
             for msg_id in user_all_chat_msg_ids[user_id]:
                 try:
@@ -301,6 +313,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if any(keyword in text.lower() for keyword in close_keywords):
             try:
                 await update.message.delete()
+            except Exception:
+                pass
+
+            # Gửi câu tạm biệt ngọt ngào trước khi xóa toàn bộ khung chat AI
+            try:
+                bye_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
+                    parse_mode="Markdown"
+                )
+                await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
             except Exception:
                 pass
 
@@ -348,8 +371,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt_system = (
             f"Hôm nay là {current_weekday}, {current_time_str}. "
             "Bạn tên là Heo Đất AI, trợ lý thông minh đa năng. "
-            "Hãy lưu ý rằng bạn là mô hình ngôn ngữ AI, không có khả năng tự động tra cứu dữ liệu thời gian thực hay số điện thoại cá nhân trên mạng để bảo mật thông tin. "
-            "Hãy trả lời thông minh, thân thiện và rõ ràng."
+            "Hãy trả lời thông minh, thân thiện, ngọt ngào."
         )
 
         if user_id not in user_chat_histories:
@@ -429,7 +451,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             old_tx = history[idx]
             diff = new_amount - old_tx['amount']
             
-            # Cập nhật tổng quỹ
             if old_tx['type'] == "Thu":
                 user_data_db[user_id]["daily_income"] += diff
                 user_data_db[user_id]["yearly_income"] += diff
@@ -541,7 +562,6 @@ async def send_yearly_report(application):
 
 def schedule_jobs(application):
     scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
-    # Bot đã có sẵn tính năng tự động thông báo chốt sổ lúc 00:00 hàng ngày (và 31/12 tổng kết năm)
     scheduler.add_job(lambda: application.create_task(send_daily_report(application)), 'cron', hour=0, minute=0)
     scheduler.add_job(lambda: application.create_task(send_yearly_report(application)), 'cron', month=12, day=31, hour=0, minute=0)
     scheduler.start()
