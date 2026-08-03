@@ -1,5 +1,5 @@
 # =====================================================================
-# GROK AI PRO OS - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
+# HEO ĐẤT AI PRO - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
 # =====================================================================
 import os
 import logging
@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 from groq import Groq
 
-from config import TELEGRAM_BOT_TOKEN, PORT
+from config import TELEGRAM_BOT_TOKEN
 from keep_alive import keep_alive
 
 # Cấu hình logging
@@ -35,7 +35,7 @@ user_ai_messages = {}
 user_all_chat_msg_ids = {} 
 user_last_menu_id = {}
 
-# --- GIAO DIỆN BẢNG ĐIỀU KHIỂN TÀI CHÍNH ---
+# --- GIAO DIỆN BẢNG ĐIỀU KHIỂN TÀI CHÍNH (HEO ĐẤT AI PRO) ---
 def get_main_menu_content(user_id):
     if user_id not in user_data_db:
         user_data_db[user_id] = {
@@ -59,9 +59,9 @@ def get_main_menu_content(user_id):
 
     text = (
         "╔═══════════════════════════╗\n"
-        "      ⚡ **G R O K  AI  P R O  O S** ⚡      \n"
+        "      🐷 **H E O  Đ Ấ T  AI  P R O** 🐷      \n"
         "╚═══════════════════════════╝\n\n"
-        "📊 **BẢNG ĐIỀU KHIỂN TÀI CHÍNH** 📊\n"
+        "📊 **BẢNG ĐIỀU KHIỂN TÀI CHÍNH THÔNG MINH** 📊\n"
         f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
         f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
         f"  💎 **Số Dư Hôm Nay:** `{balance:,.0f} đ`\n\n"
@@ -81,7 +81,7 @@ def get_main_menu_content(user_id):
         ],
         [
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
-            InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN VỚI GROK", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN VỚI HEO ĐẤT AI", callback_data="chat_ai_mode"),
         ]
     ]
     return text, InlineKeyboardMarkup(keyboard)
@@ -134,10 +134,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "CHAT_AI"
         user_all_chat_msg_ids[user_id] = []
         
-        keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG GROK & VỀ MENU CHÍNH ]", callback_data="back_home")]]
+        keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG HEO ĐẤT AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "⚡🤖 **ĐÃ KÍCH HOẠT HỆ THỐNG GROK AI** 🤖⚡\n\n"
-            "Tôi là Grok, sẵn sàng hỗ trợ bạn trò chuyện siêu tốc, tìm nhạc, vẽ ảnh hoặc phân tích dữ liệu!\n\n"
+            "🐷🤖 **ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO** 🤖🐷\n\n"
+            "Tôi là trợ lý Heo Đất AI, sẵn sàng hỗ trợ bạn trò chuyện siêu tốc, tìm nhạc, vẽ ảnh hoặc quản lý tài chính!\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -318,7 +318,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1. TÍNH NĂNG VẼ ẢNH
         image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh"]
         if any(keyword in text_lower for keyword in image_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Grok đang tạo ảnh theo yêu cầu...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang tạo ảnh theo yêu cầu...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             encoded_prompt = urllib.parse.quote(text)
@@ -334,7 +334,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=f"⚡ **Grok AI Image:**\n*'{text}'*",
+                    caption=f"🐷 **Heo Đất AI Image:**\n*'{text}'*",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
@@ -345,7 +345,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 2. TÍNH NĂNG TÌM BÀI HÁT / GỬI FILE NHẠC
         song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "gửi nhạc", "tìm bài"]
         if any(keyword in text_lower for keyword in song_action_keywords):
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Grok đang tìm file nhạc...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm file nhạc...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
@@ -354,7 +354,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id,
                     audio=sample_audio_url,
                     title=text,
-                    caption=f"⚡ **Grok AI Music:** Gửi bạn bản nhạc yêu cầu! 🎧",
+                    caption=f"🐷 **Heo Đất AI Music:** Gửi bạn bản nhạc yêu cầu! 🎧",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
@@ -368,8 +368,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. TRÒ CHUYỆN VỚI GROQ AI (Llama3)
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="⚡ Grok đang phân tích...")
+        # 3. TRÒ CHUYỆN VỚI HEO ĐẤT AI (Llama3 qua Groq)
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang phân tích...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         try:
@@ -377,7 +377,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 messages=[
                     {
                         "role": "system",
-                        "content": "Bạn là Grok, một trợ lý AI thông minh, sắc sảo, hài hước và phản hồi siêu tốc."
+                        "content": "Bạn là Heo Đất AI, một trợ lý thông minh, thân thiện, sắc sảo và chuyên gia hỗ trợ tài chính cá nhân siêu tốc."
                     },
                     {
                         "role": "user",
@@ -389,7 +389,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text = chat_completion.choices[0].message.content
         except Exception as e:
             logging.error(f"Lỗi Groq API Engine: {e}")
-            reply_text = "⚠️ Hệ thống Groq đang bận, bạn vui lòng nhắn lại nhé!"
+            reply_text = "⚠️ Hệ thống Heo Đất AI đang bận, bạn vui lòng nhắn lại nhé!"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
@@ -399,7 +399,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         bot_reply_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"⚡ **Grok AI:**\n\n{reply_text}",
+            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
             parse_mode="Markdown"
         )
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
@@ -454,12 +454,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data_db[user_id]["daily_income"] += amount
         user_data_db[user_id]["yearly_income"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Thu", "amount": amount})
-        await update.message.reply_text(f"✅ Nạp quỹ: `+{amount:,.0f} đ`!", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Đã nhét heo (Nạp): `+{amount:,.0f} đ`!", parse_mode="Markdown")
     elif state == "WAITING_EXPENSE":
         user_data_db[user_id]["daily_expense"] += amount
         user_data_db[user_id]["yearly_expense"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Chi", "amount": amount})
-        await update.message.reply_text(f"✅ Rút quỹ: `-{amount:,.0f} đ`!", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Đã múc heo (Rút): `-{amount:,.0f} đ`!", parse_mode="Markdown")
 
     user_state.pop(user_id, None)
 
@@ -470,7 +470,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Grok AI Pro OS (Groq API Engine) đang chạy trực tuyến...")
+    logging.info("Heo Đất AI Pro đang chạy trực tuyến...")
     application.run_polling()
 
 if __name__ == "__main__":
