@@ -1,3 +1,10 @@
+Lỗi `telegram.error.BadRequest: Can't parse entities` xảy ra là do **Markdown** trong câu trả lời của AI trả về có chứa các ký tự đặc biệt (như dấu gạch dưới `_`, dấu sao `*`, hoặc thẻ HTML/Markdown chưa đóng cặp đúng cách) khiến thư viện Telegram không dịch được định dạng.
+
+Để khắc phục triệt để lỗi này, chúng ta sẽ chuyển chế độ gửi tin nhắn từ `parse_mode="Markdown"` sang gửi văn bản thuần túy (`parse_mode=None`) cho phần phản hồi của AI, giúp bot không bao giờ bị lỗi format nữa.
+
+Dưới đây là mã nguồn `main.py` đã được sửa hoàn chỉnh:
+
+```python
 # =====================================================================
 # HEO ĐẤT AI PRO - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
 # =====================================================================
@@ -59,15 +66,15 @@ def get_main_menu_content(user_id):
 
     text = (
         "╔═══════════════════════════╗\n"
-        "      🐷 **H E O  Đ Ấ T  AI  P R O** 🐷      \n"
+        "      🐷 H E O  Đ Ấ T  AI  P R O 🐷      \n"
         "╚═══════════════════════════╝\n\n"
-        "📊 **BẢNG ĐIỀU KHIỂN TÀI CHÍNH THÔNG MINH** 📊\n"
-        f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
-        f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
-        f"  💎 **Số Dư Hôm Nay:** `{balance:,.0f} đ`\n\n"
-        f"📈 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
-        f"💰 **Tích lũy thực tế:** Đã cất dành được `{balance:,.0f} đ` qua **{saved_days} ngày**!\n\n"
-        "🔥 *Lựa chọn tác vụ bên dưới để tiếp tục:*"
+        "📊 BẢNG ĐIỀU KHIỂN TÀI CHÍNH THÔNG MINH 📊\n"
+        f"  📥 Thu Vào: {d_inc:,.0f} đ\n"
+        f"  📤 Chi Ra: {d_exp:,.0f} đ\n"
+        f"  💎 Số Dư Hôm Nay: {balance:,.0f} đ\n\n"
+        f"📈 Dòng Tiền:\n[{progress_bar}]\n\n"
+        f"💰 Tích lũy thực tế: Đã cất dành được {balance:,.0f} đ qua {saved_days} ngày!\n\n"
+        "🔥 Lựa chọn tác vụ bên dưới để tiếp tục:"
     )
 
     keyboard = [
@@ -104,7 +111,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         await update.callback_query.answer()
 
-    msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
+    msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=None)
     user_last_menu_id[user_id] = msg.message_id
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,11 +131,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "add_income":
         user_state[user_id] = "WAITING_INCOME"
-        msg = await query.message.reply_text("📥 **NHẬP KHOẢN THU:** Gửi số tiền (vd: `50k`, `2tr`, `500000`):", parse_mode="Markdown")
+        msg = await query.message.reply_text("📥 NHẬP KHOẢN THU: Gửi số tiền (vd: 50k, 2tr, 500000):", parse_mode=None)
         user_ai_messages[user_id] = [msg.message_id]
     elif data == "add_expense":
         user_state[user_id] = "WAITING_EXPENSE"
-        msg = await query.message.reply_text("📤 **NHẬP KHOẢN CHI:** Gửi số tiền (vd: `100k`, `1.5tr`):", parse_mode="Markdown")
+        msg = await query.message.reply_text("📤 NHẬP KHOẢN CHI: Gửi số tiền (vd: 100k, 1.5tr):", parse_mode=None)
         user_ai_messages[user_id] = [msg.message_id]
     elif data == "chat_ai_mode":
         user_state[user_id] = "CHAT_AI"
@@ -136,11 +143,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG HEO ĐẤT AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🐷🤖 **ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO** 🤖🐷\n\n"
+            "🐷🤖 ĐÃ KÍCH HOẠT HỆ THỐNG HEO ĐẤT AI PRO 🤖🐷\n\n"
             "Tôi là trợ lý Heo Đất AI, sẵn sàng hỗ trợ bạn trò chuyện siêu tốc, tìm nhạc, vẽ ảnh hoặc quản lý tài chính!\n\n"
-            "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
+            "💡 Bấm nút bên dưới khi muốn thoát về menu tài chính.",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=None
         )
         user_all_chat_msg_ids[user_id].append(intro_msg.message_id)
         user_last_menu_id[user_id] = query.message.message_id
@@ -153,34 +160,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "view_history":
         history = user_data_db[user_id]["history"][-5:]
         if not history:
-            history_text = "✨ *Chưa ghi nhận giao dịch nào trong ngày.*"
+            history_text = "✨ Chưa ghi nhận giao dịch nào trong ngày."
         else:
-            history_text = "\n".join([f"🔹 `[{h['time']}]` **{h['type']}**: `{h['amount']:,.0f} đ`" for h in history])
+            history_text = "\n".join([f"🔹 [{h['time']}] {h['type']}: {h['amount']:,.0f} đ" for h in history])
         
         keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
         await query.message.edit_text(
-            f"📜 **5 GIAO DỊCH GẦN NHẤT HÔM NAY**\n\n{history_text}",
+            f"📜 5 GIAO DỊCH GẦN NHẤT HÔM NAY\n\n{history_text}",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=None
         )
     elif data == "view_detail_ledger":
         history = user_data_db[user_id]["history"]
         if not history:
             keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
-            await query.message.edit_text("📋 **SỔ CHI TIÊU GIAO DỊCH**\n\n✨ *Chưa có giao dịch nào.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.edit_text("📋 SỔ CHI TIÊU GIAO DỊCH\n\n✨ Chưa có giao dịch nào.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
             return
 
-        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)**\n\n"
+        ledger_text = "📋 SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)\n\n"
         keyboard = []
         for idx, h in enumerate(history):
             icon = "🟢" if h['type'] == "Thu" else "🔴"
-            ledger_text += f"{idx+1}. {icon} `[{h['time']}]` **{h['type']}**: `{h['amount']:,.0f} đ`\n"
+            ledger_text += f"{idx+1}. {icon} [{h['time']}] {h['type']}: {h['amount']:,.0f} đ\n"
             keyboard.append([
                 InlineKeyboardButton(f"#{idx+1} ❌ Xóa", callback_data=f"del_tx_{idx}"),
                 InlineKeyboardButton(f"#{idx+1} ✏️ Sửa", callback_data=f"edit_tx_{idx}")
             ])
         keyboard.append([InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")])
-        await query.message.edit_text(ledger_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.edit_text(ledger_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
 
     elif data.startswith("del_tx_"):
         idx = int(data.split("_")[2])
@@ -198,25 +205,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history = user_data_db[user_id]["history"]
         if not history:
             keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
-            await query.message.edit_text("📋 **SỔ CHI TIÊU**\n\n✨ *Trống.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.edit_text("📋 SỔ CHI TIÊU\n\n✨ Trống.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
             return
 
-        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH**\n\n"
+        ledger_text = "📋 SỔ CHI TIÊU & GIAO DỊCH\n\n"
         keyboard = []
         for i, h in enumerate(history):
             icon = "🟢" if h['type'] == "Thu" else "🔴"
-            ledger_text += f"{i+1}. {icon} `[{h['time']}]` **{h['type']}**: `{h['amount']:,.0f} đ`\n"
+            ledger_text += f"{i+1}. {icon} [{h['time']}] {h['type']}: {h['amount']:,.0f} đ\n"
             keyboard.append([
                 InlineKeyboardButton(f"#{i+1} ❌ Xóa", callback_data=f"del_tx_{i}"),
                 InlineKeyboardButton(f"#{i+1} ✏️ Sửa", callback_data=f"edit_tx_{i}")
             ])
         keyboard.append([InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")])
-        await query.message.edit_text(ledger_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.edit_text(ledger_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=None)
 
     elif data.startswith("edit_tx_"):
         idx = int(data.split("_")[2])
         user_state[user_id] = f"EDITING_TX_{idx}"
-        msg = await query.message.reply_text(f"✏️ **SỬA GIAO DỊCH #{idx+1}:** Gửi số tiền mới:", parse_mode="Markdown")
+        msg = await query.message.reply_text(f"✏️ SỬA GIAO DỊCH #{idx+1}: Gửi số tiền mới:", parse_mode=None)
         user_ai_messages[user_id] = [msg.message_id]
 
     elif data == "view_year":
@@ -226,12 +233,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 Quay lại Menu", callback_data="back_home")]]
         await query.message.edit_text(
-            f"📈 **BÁO CÁO TÀI CHÍNH TOÀN NĂM**\n\n"
-            f"🟢 Thu: `{y_inc:,.0f} đ`\n"
-            f"🔴 Chi: `{y_exp:,.0f} đ`\n"
-            f"💎 **Số Dư:** `{y_balance:,.0f} đ`",
+            f"📈 BÁO CÁO TÀI CHÍNH TOÀN NĂM\n\n"
+            f"🟢 Thu: {y_inc:,.0f} đ\n"
+            f"🔴 Chi: {y_exp:,.0f} đ\n"
+            f"💎 Số Dư: {y_balance:,.0f} đ",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=None
         )
     elif data == "back_home":
         if user_id in user_all_chat_msg_ids:
@@ -263,7 +270,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_state.pop(user_id, None)
         text, reply_markup = get_main_menu_content(user_id)
-        msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
+        msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=None)
         user_last_menu_id[user_id] = msg.message_id
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -300,7 +307,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             user_state.pop(user_id, None)
             text_menu, reply_markup = get_main_menu_content(user_id)
-            msg = await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode="Markdown")
+            msg = await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode=None)
             user_last_menu_id[user_id] = msg.message_id
             return
 
@@ -334,8 +341,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=f"🐷 **Heo Đất AI Image:**\n*'{text}'*",
-                    parse_mode="Markdown"
+                    caption=f"🐷 Heo Đất AI Image:\n'{text}'",
+                    parse_mode=None
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
             except Exception:
@@ -354,8 +361,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id,
                     audio=sample_audio_url,
                     title=text,
-                    caption=f"🐷 **Heo Đất AI Music:** Gửi bạn bản nhạc yêu cầu! 🎧",
-                    parse_mode="Markdown"
+                    caption="🐷 Heo Đất AI Music: Gửi bạn bản nhạc yêu cầu! 🎧",
+                    parse_mode=None
                 )
                 user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
             except Exception:
@@ -384,7 +391,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "content": text
                     }
                 ],
-                model="llama-3.3-70b-versatile", # Đã cập nhật model mới nhất của Groq
+                model="llama-3.3-70b-versatile",
             )
             reply_text = chat_completion.choices[0].message.content
         except Exception as e:
@@ -399,8 +406,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         bot_reply_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
-            parse_mode="Markdown"
+            text=f"🐷 Heo Đất AI:\n\n{reply_text}",
+            parse_mode=None # Đã bỏ định dạng Markdown tránh lỗi ký tự đặc biệt
         )
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
         return
@@ -431,7 +438,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_data_db[user_id]["daily_expense"] += diff
                 user_data_db[user_id]["yearly_expense"] += diff
             old_tx['amount'] = new_amount
-            await update.message.reply_text(f"✅ Đã sửa giao dịch thành `{new_amount:,.0f} đ`!", parse_mode="Markdown")
+            await update.message.reply_text(f"✅ Đã sửa giao dịch thành {new_amount:,.0f} đ!", parse_mode=None)
 
         user_state.pop(user_id, None)
         return
@@ -446,7 +453,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             amount = float(clean_text)
     except ValueError:
-        await update.message.reply_text("❌ Sai định dạng tiền! (Ví dụ: `50k`, `2tr`)")
+        await update.message.reply_text("❌ Sai định dạng tiền! (Ví dụ: 50k, 2tr)")
         return
 
     current_time = datetime.now().strftime("%H:%M")
@@ -454,12 +461,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data_db[user_id]["daily_income"] += amount
         user_data_db[user_id]["yearly_income"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Thu", "amount": amount})
-        await update.message.reply_text(f"✅ Đã nhét heo (Nạp): `+{amount:,.0f} đ`!", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Đã nhét heo (Nạp): +{amount:,.0f} đ!", parse_mode=None)
     elif state == "WAITING_EXPENSE":
         user_data_db[user_id]["daily_expense"] += amount
         user_data_db[user_id]["yearly_expense"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Chi", "amount": amount})
-        await update.message.reply_text(f"✅ Đã múc heo (Rút): `-{amount:,.0f} đ`!", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Đã múc heo (Rút): -{amount:,.0f} đ!", parse_mode=None)
 
     user_state.pop(user_id, None)
 
@@ -475,3 +482,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+```
