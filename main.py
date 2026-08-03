@@ -304,17 +304,38 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
     state = enterprise_user_states.get(user_id, "ENTERPRISE_AI_CHAT")
 
     if state == "ENTERPRISE_AI_CHAT":
-        if any(w in raw_text.lower() for w in ["menu", "thoát", "về menu"]):
+        exit_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "bye", "đóng", "thoát", "menu"]
+        if any(cmd in raw_text.lower() for cmd in exit_keywords):
+            # 1. Xóa tin nhắn từ khóa của người dùng
             try:
                 await update.message.delete()
             except Exception:
                 pass
+
+            # 2. Xóa toàn bộ tin nhắn lịch sử trò chuyện AI đã lưu trong tracker
+            if user_id in enterprise_message_tracker:
+                for msg_id in enterprise_message_tracker[user_id]:
+                    try:
+                        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception:
+                        pass
+                enterprise_message_tracker[user_id] = []
+
+            # 3. Xóa menu cũ nếu còn tồn tại
+            if user_id in enterprise_menu_pointers:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
+                except Exception:
+                    pass
+
+            # 4. Reset trạng thái và gửi lại bảng điều khiển chính sạch sẽ
             enterprise_user_states.pop(user_id, None)
             text, markup = enterprise_render_dashboard_menu(user_id)
             msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
             enterprise_menu_pointers[user_id] = msg.message_id
             return
 
+        # Tiến trình chat AI thông thường
         try:
             enterprise_message_tracker.setdefault(user_id, []).append(update.message.message_id)
             await update.message.delete()
@@ -348,6 +369,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         enterprise_message_tracker[user_id].append(m.message_id)
         return
 
+    # Xử lý các trạng thái nhập thu/chi thông thường
     try:
         val = enterprise_parse_amount(raw_text)
     except ValueError:
