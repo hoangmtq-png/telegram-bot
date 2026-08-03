@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (FULL FIXED & REFRESH DASHBOARD)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (LATEST GROQ MODEL FIXED)
 # ====================================================================================================
 
 import os
@@ -57,7 +57,8 @@ except Exception as e:
     logger.error(f"Khởi tạo Groq Client thất bại: {e}")
     groq_client = None
 
-GROQ_MODEL = "llama3-70b-8192"
+# Cập nhật sang model chuẩn mới nhất của Groq
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -473,7 +474,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Full Features)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Fixed Model)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -481,7 +482,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG HOÀN CHỈNH!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI MODEL GROQ MỚI NHẤT!")
     application.run_polling()
 
 
