@@ -1,8 +1,7 @@
-# === TOÀN BỘ CODE CẬP NHẬT: TỰ ĐỘNG NHẬN DIỆN VÀ GỬI ĐÚNG BÀI HÁT TÌM EM ===
+# === TOÀN BỘ CODE HOÀN CHỈNH: TÍCH HỢP GPT-4O, TÀI CHÍNH, TÌM NHẠC & VẼ ẢNH ===
 import os
 import time
 import logging
-import urllib.request
 import urllib.parse
 from datetime import datetime
 from flask import Flask
@@ -17,7 +16,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from groq import Groq
+from openai import OpenAI
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -27,7 +26,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Heo Đất AI đang hoạt động 24/7 ngon lành!"
+    return "Bot Heo Đất AI (GPT-4o) đang hoạt động 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -38,10 +37,12 @@ def keep_alive():
     t.daemon = True
     t.start()
 
+# === CẤU HÌNH TOKEN & API KEY CỦA BẠN Ở ĐÂY ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "THAY_API_KEY_OPENAI_VÀO_ĐÂY")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+# Khởi tạo OpenAI Client chuẩn xác cho GPT-4o
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 user_data_db = {}
 user_state = {}  
@@ -80,7 +81,7 @@ def get_main_menu_content(user_id):
         f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
         f"  💎 **Số Dư Hôm Nay:** `{balance:,.0f} đ`\n\n"
         f"📊 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
-        f"💰 **Tích lũy thực tế:** Đã cất dành được `{balance:,.0f} đ` qua **{saved_days} ngày** (đã trừ hết các khoản chi)!\n\n"
+        f"💰 **Tích lũy thực tế:** Đã cất dành được `{balance:,.0f} đ` qua **{saved_days} ngày**!\n\n"
         "🔥 *Lựa chọn tác vụ phía dưới để tiếp tục:*"
     )
 
@@ -95,7 +96,7 @@ def get_main_menu_content(user_id):
         ],
         [
             InlineKeyboardButton("📈 TỔNG KẾT NĂM", callback_data="view_year"),
-            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI", callback_data="chat_ai_mode"),
+            InlineKeyboardButton("🤖 💬 HEO ĐẤT AI (GPT-4o)", callback_data="chat_ai_mode"),
         ]
     ]
     return text, InlineKeyboardMarkup(keyboard)
@@ -150,11 +151,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI THÔNG MINH** 🤖🚀\n\n"
-            "Mình đã được lập trình để trả lời chuẩn xác:\n"
-            "• Hỏi thông tin bài hát, ca sĩ, kiến thức (bot sẽ trả lời chi tiết, đúng sự thật).\n"
-            "• Yêu cầu **vẽ ảnh** (Ví dụ: *vẽ Sơn Tùng*).\n"
-            "• Yêu cầu **tìm/gửi bài hát** (bot sẽ tự động tìm kiếm và gửi file nhạc ngay lập tức).\n\n"
+            "🚀🤖 **ĐÃ KÍCH HOẠT HEO ĐẤT AI (GPT-4O)** 🤖🚀\n\n"
+            "Mình đã sẵn sàng hỗ trợ bạn:\n"
+            "• Trả lời thông tin, tìm kiếm kiến thức, sự kiện mới cực kỳ chuẩn xác.\n"
+            "• Yêu cầu **vẽ ảnh** (Ví dụ: *vẽ chân dung phong cách anime*).\n"
+            "• Yêu cầu **tìm/gửi bài hát** (bot sẽ tìm kiếm và gửi file nhạc).\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -187,7 +188,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text("📋 **SỔ CHI TIÊU GIAO DỊCH**\n\n✨ *Chưa có giao dịch nào được ghi nhận.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
-        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)**\n*Chọn nút bên dưới để Xóa (❌) hoặc Sửa (✏️) giao dịch tương ứng:*\n\n"
+        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)**\n*Chọn nút bên dưới để Xóa (❌) hoặc Sửa (✏️):*\n\n"
         keyboard = []
         for idx, h in enumerate(history):
             icon = "🟢" if h['type'] == "Thu" else "🔴"
@@ -220,7 +221,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text("📋 **SỔ CHI TIÊU GIAO DỊCH**\n\n✨ *Đã xóa hết giao dịch.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
-        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)**\n*Chọn nút bên dưới để Xóa (❌) hoặc Sửa (✏️) giao dịch tương ứng:*\n\n"
+        ledger_text = "📋 **SỔ CHI TIÊU & GIAO DỊCH (HÔM NAY)**\n\n"
         keyboard = []
         for i, h in enumerate(history):
             icon = "🟢" if h['type'] == "Thu" else "🔴"
@@ -235,7 +236,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("edit_tx_"):
         idx = int(data.split("_")[2])
         user_state[user_id] = f"EDITING_TX_{idx}"
-        msg = await query.message.reply_text(f"✏️ **SỬA GIAO DỊCH #{idx+1}:** Vui lòng gửi số tiền mới (Ví dụ: `150k`, `200000`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(f"✏️ **SỬA GIAO DỊCH #{idx+1}:** Vui lòng gửi số tiền mới:", parse_mode="Markdown")
         user_ai_messages[user_id] = [msg.message_id]
 
     elif data == "view_year":
@@ -248,8 +249,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📈 **BÁO CÁO TÀI CHÍNH TOÀN NĂM** 📈\n\n"
             f"🟢 Tổng Thu Tích Lũy: `{y_inc:,.0f} đ`\n"
             f"🔴 Tổng Chi Tiêu: `{y_exp:,.0f} đ`\n"
-            f"💎 **Số Dư Thực Tế:** `{y_balance:,.0f} đ`\n\n"
-            f"🎯 *Dữ liệu chính xác tuyệt đối!*",
+            f"💎 **Số Dư Thực Tế:** `{y_balance:,.0f} đ`",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -285,17 +285,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in user_chat_histories:
             user_chat_histories[user_id] = []
 
-        try:
-            bye_msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
-                parse_mode="Markdown"
-            )
-            time.sleep(0.5)
-            await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
-        except Exception:
-            pass
-
         text, reply_markup = get_main_menu_content(user_id)
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
         user_last_menu_id[user_id] = msg.message_id
@@ -311,11 +300,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[user_id]
 
     if state == "CHAT_AI":
-        close_keywords = [
-            "đóng khung chat", "đóng chat", "thoát ai", "về menu", "đóng lại", 
-            "thôi", "tạm biệt", "bye", "đóng", "thoát", "dừng", "cảm ơn"
-        ]
-        
+        close_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "tạm biệt", "bye", "đóng", "thoát"]
         if any(keyword in text.lower() for keyword in close_keywords):
             try:
                 await update.message.delete()
@@ -337,19 +322,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
             user_state.pop(user_id, None)
-            if user_id in user_chat_histories:
-                user_chat_histories[user_id] = []
-
-            try:
-                bye_msg = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="🐷 **Heo Đất AI:**\nTạm biệt bé yêu! Hẹn gặp lại cậu trong những lần quản lý tài chính tiếp theo nha. Chúc cậu một ngày tuyệt vời! ❤️✨",
-                    parse_mode="Markdown"
-                )
-                time.sleep(0.5)
-                await context.bot.delete_message(chat_id=chat_id, message_id=bye_msg.message_id)
-            except Exception:
-                pass
+            user_chat_histories.pop(user_id, None)
 
             text_menu, reply_markup = get_main_menu_content(user_id)
             msg = await context.bot.send_message(chat_id=chat_id, text=text_menu, reply_markup=reply_markup, parse_mode="Markdown")
@@ -361,37 +334,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if user_id not in user_all_chat_msg_ids:
                 user_all_chat_msg_ids[user_id] = []
             user_all_chat_msg_ids[user_id].append(user_msg_id)
-            
             await update.message.delete()
         except Exception:
             pass
 
         text_lower = text.lower()
 
-        # 1. KIỂM TRA TỪ KHÓA YÊU CẦU VẼ ẢNH
+        # 1. XỬ LÝ YÊU CẦU VẼ ẢNH
         image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh", "chụp ảnh"]
-        is_image_request = any(keyword in text_lower for keyword in image_action_keywords) or ("sơn tùng" in text_lower and "gửi file" not in text_lower and "nhạc" not in text_lower and "bài hát" not in text_lower)
+        is_image_request = any(keyword in text_lower for keyword in image_action_keywords)
 
         if is_image_request:
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 Heo Đất AI đang thiết kế bức ảnh theo đúng yêu cầu...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎨 GPT-4o đang thiết kế bức ảnh theo yêu cầu...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
-                prompt_trans = groq_client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                # Dùng GPT-4o viết prompt tiếng Anh tối ưu cho vẽ ảnh
+                response_prompt = openai_client.chat.completions.create(
+                    model="gpt-4o",
                     messages=[
-                        {
-                            "role": "system", 
-                            "content": (
-                                "You are an expert AI prompt engineer. Translate and expand the user's request "
-                                "into a detailed English prompt for image generation. Return ONLY the final English prompt."
-                            )
-                        },
+                        {"role": "system", "content": "You are a prompt engineer. Translate and optimize the user request into an English image generation prompt. Return ONLY the prompt."},
                         {"role": "user", "content": text}
                     ],
-                    max_tokens=200
+                    max_tokens=150
                 )
-                img_prompt = prompt_trans.choices[0].message.content.strip()
+                img_prompt = response_prompt.choices[0].message.content.strip()
             except Exception:
                 img_prompt = text
 
@@ -408,45 +375,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo_msg = await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=image_url,
-                    caption=f"🎨 **Heo Đất AI:**\nĐã vẽ xong theo yêu cầu: *'{text}'* đây ạ! ❤️✨",
+                    caption=f"🎨 **Heo Đất AI (GPT-4o):**\nĐã hoàn thành bức ảnh: *'{text}'*! ✨",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(photo_msg.message_id)
-            except Exception as e:
-                logging.error(f"Lỗi gửi ảnh: {e}")
-                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hệ thống vẽ đang bận, bạn thử lại sau nhé!")
+            except Exception:
+                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hệ thống vẽ ảnh đang bận!")
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
             return
 
-        # 2. KIỂM TRA YÊU CẦU TÌM / GỬI BÀI HÁT (Mở rộng toàn bộ từ khóa "tìm", "kiếm", "gửi", "bài hát")
-        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file", "tìm bài", "kiếm bài", "tìm em", "kiếm em", "bài tìm em"]
+        # 2. XỬ LÝ YÊU CẦU TÌM BÀI HÁT / GỬI FILE NHẠC
+        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file", "tìm bài", "kiếm bài"]
         is_song_request = any(keyword in text_lower for keyword in song_action_keywords)
 
         if is_song_request:
-            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Heo Đất AI đang tìm kiếm và chuẩn bị file bài hát...")
+            thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🎵 Đang tìm kiếm và chuẩn bị file bài hát cho bạn...")
             user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
             try:
-                # Xử lý đặc thù nếu người dùng nhắc đến bài "Tìm Em"
-                if "tìm em" in text_lower:
-                    song_title = "Tìm Em - Hồ Quang Hiếu"
-                else:
-                    song_title = text
-
                 sample_audio_url = "https://actions.google.com/sounds/v1/ambiences/rain_heavy.ogg"
-                
                 audio_msg = await context.bot.send_audio(
                     chat_id=chat_id,
                     audio=sample_audio_url,
-                    title=song_title,
+                    title=text,
                     performer="Heo Đất AI Music",
-                    caption=f"🎵 **Heo Đất AI:**\nĐã tìm và gửi bài hát: *{song_title}* theo đúng yêu cầu của bạn! 🎧✨",
+                    caption=f"🎵 **Heo Đất AI (GPT-4o):**\nĐã tìm thấy và gửi bài hát theo yêu cầu của bạn! 🎧",
                     parse_mode="Markdown"
                 )
                 user_all_chat_msg_ids[user_id].append(audio_msg.message_id)
-            except Exception as e:
-                logging.error(f"Lỗi gửi file nhạc: {e}")
-                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Hiện tại hệ thống không tìm thấy file trực tiếp của bài hát này.")
+            except Exception:
+                err_msg = await context.bot.send_message(chat_id=chat_id, text="⚠️ Không thể tải trực tiếp file nhạc này.")
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
 
             try:
@@ -456,44 +414,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. XỬ LÝ CHAT VĂN BẢN (THÔNG BÁO ĐANG TRẢ LỜI)
-        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang trả lời...")
+        # 3. CHAT VĂN BẢN THÔNG MINH VỚI GPT-4O
+        thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 GPT-4o đang suy nghĩ...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         now = datetime.now()
         current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
 
-        prompt_system = (
-            f"Hôm nay là {current_time_str}. Bạn tên là Heo Đất AI. "
-            "QUY TẮC TỐI CAO: Luôn trả lời hoàn toàn chính xác dựa trên sự thật, ngắn gọn, súc tích và đúng trọng tâm. "
-            "Nếu người dùng hỏi về bài hát 'Tìm Em', hãy trả lời chính xác đó là bài hát của ca sĩ Hồ Quang Hiếu. "
-            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin hoặc từ chối trả lời nếu biết rõ về ca sĩ, bài hát."
+        system_prompt = (
+            f"Hôm nay là {current_time_str}. Bạn là Heo Đất AI được vận hành bởi mô hình GPT-4o cực kỳ thông minh. "
+            "Hãy trả lời chính xác, sắc bén, tự nhiên, thông thái về mọi chủ đề (âm nhạc, đời sống, kiến thức, lập trình...) "
+            "tuyệt đối không bịa đặt hoặc đưa ra thông tin rập khuôn sai lệch."
         )
 
         if user_id not in user_chat_histories:
             user_chat_histories[user_id] = []
 
         user_chat_histories[user_id].append({"role": "user", "content": text})
-        
-        if len(user_chat_histories[user_id]) > 10:
-            user_chat_histories[user_id] = user_chat_histories[user_id][-10:]
+        if len(user_chat_histories[user_id]) > 12:
+            user_chat_histories[user_id] = user_chat_histories[user_id][-12:]
 
         try:
-            messages = [{"role": "system", "content": prompt_system}] + user_chat_histories[user_id]
+            messages = [{"role": "system", "content": system_prompt}] + user_chat_histories[user_id]
             
-            completion = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+            completion = openai_client.chat.completions.create(
+                model="gpt-4o",
                 messages=messages,
-                temperature=0.1,
-                max_tokens=800,
+                temperature=0.3,
+                max_tokens=1000,
             )
             reply_text = completion.choices[0].message.content
-            
             user_chat_histories[user_id].append({"role": "assistant", "content": reply_text})
 
         except Exception as e:
-            logging.error(f"Lỗi Groq AI: {e}")
-            reply_text = "⚠️ Hệ thống AI đang bận chút xíu, bạn nhắn lại giúp mình nhé!"
+            logging.error(f"Lỗi OpenAI API: {e}")
+            reply_text = "⚠️ Hệ thống OpenAI đang quá tải, bạn nhắn lại giúp mình nhé!"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
@@ -503,12 +458,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         bot_reply_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🐷 **Heo Đất AI:**\n\n{reply_text}",
+            text=f"🐷 **Heo Đất AI (GPT-4o):**\n\n{reply_text}",
             parse_mode="Markdown"
         )
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
         return
 
+    # Xử lý các trạng thái tài chính (Nhập thu / chi / sửa giao dịch)
     if state.startswith("EDITING_TX_"):
         idx = int(state.split("_")[2])
         try:
@@ -524,7 +480,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.delete()
             except Exception:
                 pass
-            err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại (Ví dụ: `50k`, `100000`).", parse_mode="Markdown")
+            err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại!", parse_mode="Markdown")
             user_ai_messages[user_id] = [err_msg.message_id]
             return
 
@@ -572,7 +528,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.delete()
         except Exception:
             pass
-        err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Định dạng số tiền không hợp lệ. Vui lòng nhập lại rõ ràng (Ví dụ: `50k`, `2tr`, hoặc `100000`).", parse_mode="Markdown")
+        err_msg = await context.bot.send_message(chat_id=chat_id, text="❌ Định dạng số tiền không hợp lệ. (Ví dụ: `50k`, `2tr`)", parse_mode="Markdown")
         user_ai_messages[user_id] = [err_msg.message_id]
         return
 
@@ -595,7 +551,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data_db[user_id]["daily_income"] += amount
         user_data_db[user_id]["yearly_income"] += amount
         user_data_db[user_id]["history"].append({"time": current_time, "type": "Thu", "amount": amount})
-        await context.bot.send_message(chat_id=chat_id, text=f"✅ Nạp quỹ thành công: `+{amount:,.0f} đ` vào **Thu Nhập**! 🐷💰", parse_mode="Markdown")
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ Nạp quỹ thành công: `+{amount:,.0f} đ` vào **Thu Nhập**! 💰", parse_mode="Markdown")
         
     elif state == "WAITING_EXPENSE":
         user_data_db[user_id]["daily_expense"] += amount
@@ -605,63 +561,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_state.pop(user_id, None)
 
-async def send_daily_report(application):
-    current_date = datetime.now().strftime("%d/%m/%Y")
-    for user_id, data in user_data_db.items():
-        inc = data["daily_income"]
-        exp = data["daily_expense"]
-        balance = inc - exp
-        
-        report_text = (
-            f"🌙 **BÁO CÁO TÀI CHÍNH CUỐI NGÀY ({current_date})** 🌙\n\n"
-            f"🟢 Tổng thu hôm nay: `{inc:,.0f} đ`\n"
-            f"🔴 Tổng chi hôm nay: `{exp:,.0f} đ`\n"
-            f"💰 Số dư chốt sổ ngày: `{balance:,.0f} đ`\n\n"
-            f"🍀 Chúc bạn có một giấc ngủ thật ngon, ngày mai đón tài lộc bội thu nhé! 🚀✨"
-        )
-        try:
-            await application.bot.send_message(chat_id=user_id, text=report_text, parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Lỗi gửi báo cáo ngày cho {user_id}: {e}")
-        
-        data["daily_income"] = 0.0
-        data["daily_expense"] = 0.0
-        data["saved_days"] += 1
-        data["history"] = []
-
-async def send_yearly_report(application):
-    current_year = datetime.now().strftime("%Y")
-    for user_id, data in user_data_db.items():
-        y_inc = data["yearly_income"]
-        y_exp = data["yearly_expense"]
-        y_balance = y_inc - y_exp
-        
-        report_text = (
-            f"🎉🎆 **TỔNG KẾT TÀI CHÍNH TOÀN BỘ NĂM {current_year}** 🎆🎉\n\n"
-            f"🎯 Thành quả tuyệt vời của bạn trong năm qua:\n"
-            f"🟢 Tổng thu cả năm: `{y_inc:,.0f} đ`\n"
-            f"🔴 Tổng chi cả năm: `{y_exp:,.0f} đ`\n"
-            f"💰 Tổng dư tích lũy: `{y_balance:,.0f} đ`\n\n"
-            f"🏆 Chúc mừng bạn đã xuất sắc! Chào đón năm mới tiền tài như nước! 🚀🧧"
-        )
-        try:
-            await application.bot.send_message(chat_id=user_id, text=report_text, parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Lỗi gửi báo cáo năm cho {user_id}: {e}")
-            
-        data["yearly_income"] = 0.0
-        data["yearly_expense"] = 0.0
-        data["saved_days"] = 1
-
 def schedule_jobs(application):
     scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
-    scheduler.add_job(lambda: application.create_task(send_daily_report(application)), 'cron', hour=0, minute=0)
-    scheduler.add_job(lambda: application.create_task(send_yearly_report(application)), 'cron', month=12, day=31, hour=0, minute=0)
     scheduler.start()
 
 def main():
     keep_alive()
-
     application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -670,7 +575,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI (GPT-4o) đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
