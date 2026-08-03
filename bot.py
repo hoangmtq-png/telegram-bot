@@ -41,26 +41,28 @@ def keep_alive():
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
 
-# Khởi tạo Groq Client (100% miễn phí, không giới hạn phiền phức)
+# Khởi tạo Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Cơ sở dữ liệu tạm thời
+# Cơ sở dữ liệu tạm thời (Thêm trường đếm ngày tiết kiệm)
 user_data_db = {}
 user_state = {}  # Lưu trạng thái: 'WAITING_INCOME', 'WAITING_EXPENSE', 'CHAT_AI'
 
-# === PHẦN 3: MENU CHÍNH HITECH & ĐẲNG CẤP ===
+# === PHẦN 3: MENU CHÍNH HITECH & TÍCH LŨY TỪNG NGÀY ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in user_data_db:
         user_data_db[user_id] = {
             "daily_income": 0.0, "daily_expense": 0.0,
             "yearly_income": 0.0, "yearly_expense": 0.0,
+            "saved_days": 1,  # Khởi tạo mặc định từ 1 ngày tiết kiệm
             "history": []
         }
 
     d_inc = user_data_db[user_id]["daily_income"]
     d_exp = user_data_db[user_id]["daily_expense"]
     balance = d_inc - d_exp
+    saved_days = user_data_db[user_id]["saved_days"]
 
     # Hiệu ứng thanh tiến trình dòng tiền trực quan
     total_flow = d_inc + d_exp
@@ -70,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         progress_bar = "⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️⬛️"
 
-    # Giao diện menu thiết kế dạng thẻ hitech tối tân
+    # Giao diện menu thiết kế dạng thẻ hitech tích hợp số tiền tích lũy và số ngày
     text = (
         "╔═══════════════════════════╗\n"
         "      💎 **H E O  Đ Ấ T  P R O  O S** 💎      \n"
@@ -78,8 +80,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ **BẢNG ĐIỀU KHIỂN TÀI CHÍNH** ⚡\n"
         f"  📥 **Thu Vào:** `{d_inc:,.0f} đ`\n"
         f"  📤 **Chi Ra:** `{d_exp:,.0f} đ`\n"
-        f"  💎 **Số Dư:** `{balance:,.0f} đ`\n\n"
+        f"  💎 **Số Dư HôM Nay:** `{balance:,.0f} đ`\n\n"
         f"📊 **Dòng Tiền:**\n`[{progress_bar}]`\n\n"
+        f"💰 **Tích lũy thực tế:** Đã cất dành được `{balance:,.0f} đ` qua **{saved_days} ngày** (đã trừ hết các khoản chi)!\n\n"
         "🔥 *Lựa chọn tác vụ phía dưới để tiếp tục:*"
     )
 
@@ -109,12 +112,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    chat_id = query.message.chat_id
 
     if user_id not in user_data_db:
         user_data_db[user_id] = {
             "daily_income": 0.0, "daily_expense": 0.0,
             "yearly_income": 0.0, "yearly_expense": 0.0,
+            "saved_days": 1,
             "history": []
         }
 
@@ -164,12 +167,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif query.data == "back_home":
         user_state.pop(user_id, None)
-        # Xóa tin nhắn khung chat AI cũ để khung chat gọn gàng hoàn toàn
         try:
             await query.message.delete()
         except Exception:
             pass
-        # Gửi lại menu chính hoàn toàn mới phía dưới
         await start(update, context)
 
 # === PHẦN 5: XỬ LÝ TIN NHẮN & GỌI AI GROQ ===
@@ -244,7 +245,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_state.pop(user_id, None)
 
-# === PHẦN 6: TỰ ĐỘNG BÁO CÁO MỖI 00:00 ĐÊM & TỔNG KẾT NĂM ===
+# === PHẦN 6: TỰ ĐỘNG CHỐT SỔ ĐÊM & TĂNG SỐ NGÀY TÍCH LŨY ===
 async def send_daily_report(application):
     current_date = datetime.now().strftime("%d/%m/%Y")
     for user_id, data in user_data_db.items():
@@ -256,7 +257,7 @@ async def send_daily_report(application):
             f"🌙 **BÁO CÁO TÀI CHÍNH CUỐI NGÀY ({current_date})** 🌙\n\n"
             f"🟢 Tổng thu hôm nay: `{inc:,.0f} đ`\n"
             f"🔴 Tổng chi hôm nay: `{exp:,.0f} đ`\n"
-            f"💰 Số dư chốt sổ: `{balance:,.0f} đ`\n\n"
+            f"💰 Số dư chốt sổ ngày: `{balance:,.0f} đ`\n\n"
             f"🍀 Chúc bạn có một giấc ngủ thật ngon, ngày mai đón tài lộc bội thu nhé! 🚀✨"
         )
         try:
@@ -264,8 +265,10 @@ async def send_daily_report(application):
         except Exception as e:
             logging.error(f"Lỗi gửi báo cáo ngày cho {user_id}: {e}")
         
+        # Reset số liệu ngày cũ nhưng cộng dồn ngày tiết kiệm lên
         data["daily_income"] = 0.0
         data["daily_expense"] = 0.0
+        data["saved_days"] += 1
         data["history"] = []
 
 async def send_yearly_report(application):
@@ -290,6 +293,7 @@ async def send_yearly_report(application):
             
         data["yearly_income"] = 0.0
         data["yearly_expense"] = 0.0
+        data["saved_days"] = 1
 
 def schedule_jobs(application):
     scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
