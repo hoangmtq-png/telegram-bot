@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (INTENT ROUTING & SMART SEARCH)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (STABLE GROQ MODEL & INTENT ROUTING)
 # ====================================================================================================
 
 import os
@@ -56,6 +56,9 @@ try:
 except Exception as e:
     logger.error(f"Khởi tạo Groq Client thất bại: {e}")
     groq_client = None
+
+# Sử dụng model ổn định cao của Groq
+GROQ_MODEL = "llama3-70b-8192"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -355,15 +358,15 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                         },
                         {"role": "user", "content": raw_text}
                     ],
-                    model="llama-3.3-70b-versatile",
+                    model=GROQ_MODEL,
                     temperature=0.1
                 )
                 decision = intent_res.choices[0].message.content.strip()
                 if decision.startswith("SEARCH:"):
                     need_search = True
                     search_query = decision.replace("SEARCH:", "").strip()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Lỗi phân loại ý định: {e}")
 
         # 2. Thực hiện tìm kiếm web nếu ý định yêu cầu
         search_data = ""
@@ -388,7 +391,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 
                 res = groq_client.chat.completions.create(
                     messages=temp_messages,
-                    model="llama-3.3-70b-versatile",
+                    model=GROQ_MODEL,
                     temperature=0.7
                 )
                 reply_content = res.choices[0].message.content
@@ -396,8 +399,8 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
                 enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
             except Exception as e:
-                logger.error(f"Groq API Error: {e}")
-                reply_content = "Hệ thống đang gặp sự cố kết nối AI."
+                logger.error(f"Groq API Error Chi Tiết: {str(e)}")
+                reply_content = f"⚠️ Lỗi kết nối Groq AI: {str(e)}"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
@@ -447,7 +450,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Smart Intent Routing)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Stable Model)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -455,7 +458,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI HỆ THỐNG PHÂN LOẠI TÌM KIẾM THÔNG MINH!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI MODEL GROQ ỔN ĐỊNH!")
     application.run_polling()
 
 
