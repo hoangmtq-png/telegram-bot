@@ -1,4 +1,4 @@
-# === TOÀN BỘ CODE CHUẨN XÁC: HEO ĐẤT AI THÔNG MINH - CHỐNG BỊA ĐẶT ===
+# === TOÀN BỘ CODE CẬP NHẬT: THÔNG MINH - CHÍNH XÁC - TỰ PHÂN BIỆT YÊU CẦU ===
 import os
 import time
 import logging
@@ -19,12 +19,10 @@ from telegram.ext import (
 )
 from groq import Groq
 
-# Cấu hình logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# === PHẦN 1: FLASK SERVER GIỮ BOT SỐNG TRÊN RENDER ===
 app = Flask('')
 
 @app.route('/')
@@ -40,7 +38,6 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# === PHẦN 2: CẤU HÌNH TOKEN VÀ AI (GROQ - LLAMA 3.3) ===
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "THAY_TOKEN_TELEGRAM_VÀO_ĐÂY")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "THAY_API_KEY_GROQ_VÀO_ĐÂY")
 
@@ -53,7 +50,6 @@ user_ai_messages = {}
 user_all_chat_msg_ids = {} 
 user_last_menu_id = {}
 
-# === PHẦN 3: HÀM TẠO GIAO DIỆN MENU CHÍNH ===
 def get_main_menu_content(user_id):
     if user_id not in user_data_db:
         user_data_db[user_id] = {
@@ -125,7 +121,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
     user_last_menu_id[user_id] = msg.message_id
 
-# === PHẦN 4: XỬ LÝ NÚT BẤM (CALLBACK QUERY) ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -155,11 +150,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG AI & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
-            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI CHUẨN XÁC** 🤖🚀\n\n"
-            "Mình đã được lập trình để trả lời trung thực, chính xác, tuyệt đối không bịa đặt:\n"
-            "• Nhắn yêu cầu **vẽ ảnh** (Ví dụ: *vẽ Sơn Tùng*)\n"
-            "• Yêu cầu **gửi file bài hát / nhạc**\n"
-            "• Hỏi đáp kiến thức đúng trọng tâm.\n\n"
+            "🚀🤖 **KÍCH HOẠT HEO ĐẤT AI THÔNG MINH** 🤖🚀\n\n"
+            "Mình đã được lập trình để trả lời chuẩn xác:\n"
+            "• Hỏi thông tin bài hát, ca sĩ, kiến thức (bot sẽ trả lời chi tiết, đúng sự thật).\n"
+            "• Yêu cầu **vẽ ảnh** (Ví dụ: *vẽ Sơn Tùng*).\n"
+            "• Yêu cầu **gửi file nhạc / bài hát** (bot sẽ tự động tìm kiếm và gửi file audio).\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -305,7 +300,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
         user_last_menu_id[user_id] = msg.message_id
 
-# === PHẦN 5: XỬ LÝ TIN NHẮN (VẼ ẢNH, GỬI FILE NHẠC & CHAT CHUẨN XÁC) ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -372,9 +366,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        text_lower = text.lower()
+
         # 1. KIỂM TRA TỪ KHÓA YÊU CẦU VẼ ẢNH
         image_action_keywords = ["vẽ", "tạo ảnh", "kiếm ảnh", "làm ảnh", "chụp ảnh"]
-        text_lower = text.lower()
         is_image_request = any(keyword in text_lower for keyword in image_action_keywords) or ("sơn tùng" in text_lower and "gửi file" not in text_lower and "nhạc" not in text_lower and "bài hát" not in text_lower)
 
         if is_image_request:
@@ -423,8 +418,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_all_chat_msg_ids[user_id].append(err_msg.message_id)
             return
 
-        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH
-        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "bài hát", "nghe nhạc"]
+        # 2. KIỂM TRA YÊU CẦU GỬI FILE BÀI HÁT / ÂM THANH (Chỉ kích hoạt khi user thực sự muốn lấy file)
+        song_action_keywords = ["gửi file", "tải bài hát", "gửi bài hát", "file nhạc", "tải file nhạc", "gửi nhạc", "xin file"]
         is_song_request = any(keyword in text_lower for keyword in song_action_keywords)
 
         if is_song_request:
@@ -463,19 +458,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. XỬ LÝ CHAT VĂN BẢN (TUYỆT ĐỐI KHÔNG BỊA ĐẶT - CHUẨN XÁC)
+        # 3. XỬ LÝ CHAT VĂN BẢN (TRẢ LỜI THÔNG TIN CHÍNH XÁC, CỦA AI NÀO, TÁC GIẢ NÀO)
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI đang xử lý...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         now = datetime.now()
         current_time_str = now.strftime("%H:%M:%S, Ngày %d/%m/%Y")
 
-        # Prompt hệ thống ép buộc AI trung thực, chống bịa đặt
         prompt_system = (
             f"Hôm nay là {current_time_str}. Bạn tên là Heo Đất AI. "
             "QUY TẮC TỐI CAO: Luôn trả lời hoàn toàn chính xác dựa trên sự thật, ngắn gọn, súc tích và đúng trọng tâm. "
-            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin, không nói lan man, không giả mạo số liệu hay sự kiện. "
-            "Nếu không biết chắc chắn thông tin nào, hãy nói thẳng là không biết hoặc từ chối trả lời thay vì tự bịa ra."
+            "Cung cấp đầy đủ tên tác giả, ca sĩ, thông tin chính xác khi người dùng hỏi về bài hát, nghệ sĩ hoặc kiến thức. "
+            "TUYỆT ĐỐI KHÔNG được bịa đặt thông tin. Nếu không biết chắc chắn, hãy nói thẳng là không biết."
         )
 
         if user_id not in user_chat_histories:
@@ -492,7 +486,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             completion = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
-                temperature=0.1,  # Đặt nhiệt độ thấp để AI tập trung tính chính xác, không sáng tạo linh tinh
+                temperature=0.1,
                 max_tokens=800,
             )
             reply_text = completion.choices[0].message.content
@@ -517,7 +511,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_all_chat_msg_ids[user_id].append(bot_reply_msg.message_id)
         return
 
-    # XỬ LÝ SỬA GIAO DỊCH (EDITING_TX)
     if state.startswith("EDITING_TX_"):
         idx = int(state.split("_")[2])
         try:
@@ -568,7 +561,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state.pop(user_id, None)
         return
 
-    # XỬ LÝ NHẬP TIỀN THU / CHI MỚI
     try:
         clean_text = text.lower().replace("vnđ", "").replace("đ", "").replace("d", "").replace(",", "").replace(".", "").strip()
         if "k" in clean_text:
@@ -615,7 +607,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_state.pop(user_id, None)
 
-# === PHẦN 6: TỰ ĐỘNG CHỐT SỔ ĐÊM & TĂNG SỐ NGÀY TÍCH LŨY ===
 async def send_daily_report(application):
     current_date = datetime.now().strftime("%d/%m/%Y")
     for user_id, data in user_data_db.items():
@@ -670,7 +661,6 @@ def schedule_jobs(application):
     scheduler.add_job(lambda: application.create_task(send_yearly_report(application)), 'cron', month=12, day=31, hour=0, minute=0)
     scheduler.start()
 
-# === PHẦN 7: KHỞI CHẠY HỆ THỐNG ===
 def main():
     keep_alive()
 
@@ -682,7 +672,7 @@ def main():
 
     schedule_jobs(application)
 
-    logging.info("Bot Heo Đất AI (Chuẩn xác, chống bịa đặt) đang chạy mượt mà...")
+    logging.info("Bot Heo Đất AI (Thông minh - Phân biệt rạch ròi) đang chạy mượt mà...")
     application.run_polling()
 
 if __name__ == "__main__":
