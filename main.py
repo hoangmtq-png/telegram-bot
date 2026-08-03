@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (STABLE GROQ MODEL & INTENT ROUTING)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (FULL FIXED & REFRESH DASHBOARD)
 # ====================================================================================================
 
 import os
@@ -57,7 +57,6 @@ except Exception as e:
     logger.error(f"Khởi tạo Groq Client thất bại: {e}")
     groq_client = None
 
-# Sử dụng model ổn định cao của Groq
 GROQ_MODEL = "llama3-70b-8192"
 
 
@@ -416,7 +415,8 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
     try:
         val = enterprise_parse_amount(raw_text)
     except ValueError:
-        await update.message.reply_text("❌ Sai định dạng số tiền! (Ví dụ: 50k, 2tr)")
+        m_err = await update.message.reply_text("❌ Sai định dạng số tiền! (Ví dụ: 50k, 2tr)")
+        enterprise_message_tracker.setdefault(user_id, []).append(m_err.message_id)
         return
 
     time_str = datetime.now().strftime("%H:%M")
@@ -424,14 +424,37 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         enterprise_user_registry[user_id]["daily_income"] += val
         enterprise_user_registry[user_id]["yearly_income"] += val
         enterprise_user_registry[user_id]["transaction_history"].append({"time": time_str, "type": "Thu", "amount": val})
-        await update.message.reply_text(f"✅ Đã ghi nhận Thu: +{val:,.0f} đ")
     elif state == "WAITING_EXPENSE_INPUT":
         enterprise_user_registry[user_id]["daily_expense"] += val
         enterprise_user_registry[user_id]["yearly_expense"] += val
         enterprise_user_registry[user_id]["transaction_history"].append({"time": time_str, "type": "Chi", "amount": val})
-        await update.message.reply_text(f"✅ Đã ghi nhận Chi: -{val:,.0f} đ")
 
     enterprise_user_states.pop(user_id, None)
+
+    # Dọn dẹp tin nhắn chat và hiển thị lại Menu chính với số liệu mới cập nhật
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+    if user_id in enterprise_message_tracker:
+        for mid in enterprise_message_tracker[user_id]:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+            except Exception:
+                pass
+        enterprise_message_tracker[user_id] = []
+
+    if user_id in enterprise_menu_pointers:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
+        except Exception:
+            pass
+
+    text, markup = enterprise_render_dashboard_menu(user_id)
+    msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+    enterprise_menu_pointers[user_id] = msg.message_id
+    return
 
 
 def enterprise_parse_amount(text: str) -> float:
@@ -450,7 +473,7 @@ def enterprise_parse_amount(text: str) -> float:
 # KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Stable Model)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Full Features)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -458,7 +481,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG VỚI MODEL GROQ ỔN ĐỊNH!")
+    logger.info("🚀 HỆ THỐNG ĐÃ SẴN SÀNG HOÀN CHỈNH!")
     application.run_polling()
 
 
