@@ -1,5 +1,5 @@
 # =====================================================================
-# GROK AI PRO OS - FULL CHỨC NĂNG (TÀI CHÍNH + AI + VẼ ẢNH + NHẠC)
+# GROK AI PRO OS - FULL CHỨC NĂNG (GROQ API + TÀI CHÍNH + VẼ ẢNH + NHẠC)
 # =====================================================================
 import os
 import logging
@@ -14,9 +14,9 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-import google.generativeai as genai
+from groq import Groq
 
-from config import TELEGRAM_BOT_TOKEN, GEMINI_API_KEY
+from config import TELEGRAM_BOT_TOKEN, PORT
 from keep_alive import keep_alive
 
 # Cấu hình logging
@@ -25,13 +25,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Cấu hình AI Gemini/Grok
-genai.configure(api_key=GEMINI_API_KEY)
-generation_config = {
-    "temperature": 0.8,
-    "max_output_tokens": 1200,
-}
-grok_model = genai.GenerativeModel('gemini-1.5-flash', generation_config=generation_config)
+# Khởi tạo Groq Client (Lấy GROQ_API_KEY từ biến môi trường trên Render)
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
 # Cơ sở dữ liệu tạm thời trong bộ nhớ (In-memory database)
 user_data_db = {}
@@ -142,7 +137,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("🔙 [ ĐÓNG GROK & VỀ MENU CHÍNH ]", callback_data="back_home")]]
         intro_msg = await query.message.reply_text(
             "⚡🤖 **ĐÃ KÍCH HOẠT HỆ THỐNG GROK AI** 🤖⚡\n\n"
-            "Tôi là Grok, sẵn sàng hỗ trợ bạn tra chuyện, tìm nhạc, vẽ ảnh hoặc phân tích dữ liệu!\n\n"
+            "Tôi là Grok, sẵn sàng hỗ trợ bạn trò chuyện siêu tốc, tìm nhạc, vẽ ảnh hoặc phân tích dữ liệu!\n\n"
             "💡 *Bấm nút bên dưới khi muốn thoát về menu tài chính.*",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -373,16 +368,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             return
 
-        # 3. TRÒ CHUYỆN VỚI GROK AI
+        # 3. TRÒ CHUYỆN VỚI GROQ AI (Llama3)
         thinking_msg = await context.bot.send_message(chat_id=chat_id, text="⚡ Grok đang phân tích...")
         user_all_chat_msg_ids[user_id].append(thinking_msg.message_id)
 
         try:
-            response = grok_model.generate_content(text)
-            reply_text = response.text
+            chat_completion = groq_client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Bạn là Grok, một trợ lý AI thông minh, sắc sảo, hài hước và phản hồi siêu tốc."
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                model="llama3-70b-8192",
+            )
+            reply_text = chat_completion.choices[0].message.content
         except Exception as e:
-            logging.error(f"Lỗi Grok AI Engine: {e}")
-            reply_text = "⚠️ Hệ thống Grok đang bận, bạn vui lòng nhắn lại nhé!"
+            logging.error(f"Lỗi Groq API Engine: {e}")
+            reply_text = "⚠️ Hệ thống Groq đang bận, bạn vui lòng nhắn lại nhé!"
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking_msg.message_id)
@@ -463,7 +470,7 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    logging.info("Grok AI Pro OS (Full Tài Chính & Tiện Ích) đang chạy...")
+    logging.info("Grok AI Pro OS (Groq API Engine) đang chạy trực tuyến...")
     application.run_polling()
 
 if __name__ == "__main__":
