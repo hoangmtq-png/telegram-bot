@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.7 (FIXED STABLE GEMINI SDK)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.8 (FIXED MODEL DISCOVERY & STABLE API)
 # ====================================================================================================
 
 import os
@@ -45,8 +45,8 @@ def keep_alive():
 # ----------------------------------------------------------------------------------------------------
 # 2. CẤU HÌNH MÔI TRƯỜNG & LOGGING
 # ----------------------------------------------------------------------------------------------------
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 logging.basicConfig(
     format="%(asctime)s | LEVEL:%(levelname)s | MSG:%(message)s",
@@ -61,11 +61,9 @@ if GEMINI_API_KEY:
 else:
     logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
 
-GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro"]
-
 
 # ----------------------------------------------------------------------------------------------------
-# 3. TRA CỨU WEB
+# 3. TRA CỨU WEB DUCKDUCKGO
 # ----------------------------------------------------------------------------------------------------
 def enterprise_search_web(query: str, max_results: int = 3) -> str:
     try:
@@ -87,7 +85,41 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. QUẢN LÝ DỮ LIỆU & BỘ NHỚ THEO DÕI TIN NHẮN
+# 4. HÀM TỰ ĐỘNG CHỌN GEMINI MODEL KHẢ DỤNG KHÔNG BỊ LỖI 404
+# ----------------------------------------------------------------------------------------------------
+def get_working_gemini_model(system_instruction: str = None):
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        models = [
+            m.name for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        
+        # Ưu tiên theo thứ tự flash -> pro -> bất kỳ model khả dụng nào
+        selected = None
+        for m in models:
+            if 'gemini-1.5-flash' in m or 'flash' in m:
+                selected = m
+                break
+        if not selected:
+            for m in models:
+                if 'gemini-1.5-pro' in m or 'pro' in m:
+                    selected = m
+                    break
+        if not selected and models:
+            selected = models[0]
+
+        if selected:
+            logger.info(f"Sử dụng Gemini Model: {selected}")
+            return genai.GenerativeModel(model_name=selected, system_instruction=system_instruction)
+    except Exception as e:
+        logger.error(f"Lỗi khi lấy danh sách Gemini Model: {e}")
+    return None
+
+
+# ----------------------------------------------------------------------------------------------------
+# 5. QUẢN LÝ DỮ LIỆU & BỘ NHỚ TIN NHẮN
 # ----------------------------------------------------------------------------------------------------
 enterprise_user_registry: Dict[int, Dict[str, Any]] = {}
 enterprise_user_states: Dict[int, str] = {}
@@ -112,9 +144,6 @@ def enterprise_bootstrap_user(user_id: int) -> None:
         enterprise_chat_message_ids[user_id] = []
 
 
-# ----------------------------------------------------------------------------------------------------
-# 5. GIAO DIỆN BẢNG ĐIỀU KHIỂN & MỤC TIÊU TÀI CHÍNH
-# ----------------------------------------------------------------------------------------------------
 def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     enterprise_bootstrap_user(user_id)
     data = enterprise_user_registry[user_id]
@@ -333,7 +362,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. XỬ LÝ TIN NHẮN (CHUẨN HÓA GENERATIVE AI API)
+# 7. XỬ LÝ TIN NHẮN VÀ TRẢ LỜI AI
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -356,17 +385,18 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             enterprise_chat_message_ids[user_id].append(msg.message_id)
             return
 
-        thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang xử lý...")
+        thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang suy nghĩ...")
         enterprise_chat_message_ids[user_id].append(thinking.message_id)
 
         need_search = False
         search_query = raw_text
-        
-        if GEMINI_API_KEY:
+
+        # 1. Phân loại ý định có cần Search Web hay không
+        router_model = get_working_gemini_model()
+        if router_model:
             try:
-                router_model = genai.GenerativeModel("gemini-1.5-flash")
                 intent_res = router_model.generate_content(
-                    f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, nghệ sĩ, bài hát, giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
+                    f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, bài hát, thời tiết, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
                 )
                 if intent_res.text.strip().startswith("SEARCH:"):
                     need_search = True
@@ -374,13 +404,14 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             except Exception as e:
                 logger.error(f"Lỗi phân loại ý định: {e}")
 
+        # 2. Tra cứu Web nếu cần
         search_data = enterprise_search_web(search_query) if need_search else ""
         
         if need_search and search_data and "Không tìm thấy kết quả" not in search_data:
             prompt_with_context = (
                 f"Câu hỏi của người dùng: '{raw_text}'\n"
                 f"Dữ liệu thực tế từ Internet:\n{search_data}\n\n"
-                f"Yêu cầu: Hãy tổng hợp dữ liệu trên để trả lời chính xác. Tuyệt đối KHÔNG tự sáng tác thêm thông tin sai sự thật."
+                f"Yêu cầu: Tổng hợp dữ liệu trên để trả lời chính xác, ngắn gọn."
             )
         else:
             prompt_with_context = raw_text
@@ -388,24 +419,21 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         system_instruction = (
             "Bạn là trợ lý Heo Đất AI Pro thông minh và trung thực. "
             "QUY TẮC BẮT BUỘC:\n"
-            "1. Chỉ trả lời dựa trên sự thật thực tế. Nếu không chắc chắn hoặc không có dữ liệu, hãy thành thật trả lời là không biết.\n"
-            "2. Tuyệt đối KHÔNG tự bịa ra tên bài hát, tác giả, tác phẩm hay sự kiện không có thật.\n"
-            "3. Xưng hô lịch sự, thân thiện (dùng 'tôi' hoặc 'Heo Đất')."
+            "1. Chỉ trả lời dựa trên sự thật thực tế.\n"
+            "2. Tuyệt đối KHÔNG bịa đặt thông tin sai sự thật.\n"
+            "3. Xưng hô thân thiện (dùng 'tôi' hoặc 'Heo Đất')."
         )
 
-        reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị lỗi!"
-        if GEMINI_API_KEY:
-            for model_name in GEMINI_MODELS:
-                try:
-                    model = genai.GenerativeModel(
-                        model_name=model_name,
-                        system_instruction=system_instruction
-                    )
-                    res = model.generate_content(prompt_with_context)
-                    reply_content = res.text
-                    break
-                except Exception as e:
-                    logger.error(f"Gemini API Error ({model_name}): {e}")
+        # 3. Tạo câu trả lời bằng Gemini Model khả dụng
+        reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị sai/hết hạn trên Render!"
+        ai_model = get_working_gemini_model(system_instruction=system_instruction)
+        if ai_model:
+            try:
+                res = ai_model.generate_content(prompt_with_context)
+                reply_content = res.text
+            except Exception as e:
+                logger.error(f"Lỗi khi gọi Gemini: {e}")
+                reply_content = f"❌ Lỗi xử lý AI: {e}"
 
         try:
             await thinking.delete()
@@ -446,7 +474,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         enterprise_chat_message_ids[user_id].append(msg.message_id)
         return
 
-    # --- NHẮN LINH TINH TỰ XÓA TIN NHẮN RÁC & LÀM MỚI MENU ---
+    # --- NHẮN TIN NGOÀI LỆ: TỰ DỌN DẸP & LÀM MỚI BẢNG ĐIỀU KHIỂN ---
     try:
         await update.message.delete()
     except Exception:
@@ -472,7 +500,7 @@ def enterprise_parse_amount(text: str) -> float:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 8. KHỞI CHẠY CHÍNH
+# 8. KHỞI CHẠY HỆ THỐNG
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
@@ -480,7 +508,7 @@ def main() -> None:
         return
 
     keep_alive()
-    logger.info("🌐 Web Server Flask Keep-Alive đã chạy!")
+    logger.info("🌐 Web Server Flask Keep-Alive đã khởi chạy thành công!")
 
     logger.info("🚀 Đang khởi chạy Telegram Bot...")
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
