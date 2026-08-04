@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.3 (DIRECT REST API - PERMANENT FIX)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.4 (DIRECT REST API WITH AUTO FALLBACK)
 # ====================================================================================================
 
 import os
@@ -79,14 +79,19 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI BẰNG REST API TRỰC TIẾP (KHÔNG DÙNG SDK CŨ)
+# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI (REST API + CƠ CHẾ AUTO FALLBACK CHỐNG LỖI 404)
 # ----------------------------------------------------------------------------------------------------
 def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Chưa cấu hình GEMINI_API_KEY trên Render!"
 
-    # Endpoint REST chuẩn của Google Gemini API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # Danh sách ưu tiên thử nghiệm các API Endpoint & Model mới nhất
+    endpoints = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}",
+    ]
 
     payload = {
         "contents": [
@@ -104,24 +109,31 @@ def generate_gemini_response(prompt: str, system_instruction: str = None) -> str
         }
 
     headers = {'Content-Type': 'application/json'}
+    last_error = ""
 
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-        res_data = response.json()
+    for url in endpoints:
+        try:
+            model_name = url.split('/models/')[1].split(':')[0]
+            logger.info(f"Đang thử kết nối Gemini Model: {model_name}")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            res_data = response.json()
 
-        if response.status_code == 200:
-            try:
-                return res_data['candidates'][0]['content']['parts'][0]['text']
-            except (KeyError, IndexError):
-                return "⚠️ Không nhận được phản hồi phù hợp từ AI."
-        else:
-            error_msg = res_data.get('error', {}).get('message', str(res_data))
-            logger.error(f"Lỗi REST API ({response.status_code}): {error_msg}")
-            return f"❌ Lỗi Gemini API ({response.status_code}): {error_msg}"
+            if response.status_code == 200:
+                try:
+                    return res_data['candidates'][0]['content']['parts'][0]['text']
+                except (KeyError, IndexError):
+                    return "⚠️ Không nhận được phản hồi phù hợp từ AI."
+            else:
+                error_msg = res_data.get('error', {}).get('message', str(res_data))
+                last_error = f"Lỗi ({response.status_code}): {error_msg}"
+                logger.warning(f"Thử model {model_name} thất bại: {error_msg}")
 
-    except Exception as e:
-        logger.error(f"Lỗi kết nối REST API: {e}")
-        return f"❌ Lỗi kết nối mạng: {e}"
+        except Exception as e:
+            last_error = str(e)
+            logger.error(f"Lỗi kết nối REST API: {e}")
+
+    return f"❌ Lỗi Gemini API: {last_error}"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -314,7 +326,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
         init_msg = await context.bot.send_message(
             chat_id=chat_id, 
-            text="🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nHãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", 
+            text="🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nH Hãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", 
             reply_markup=InlineKeyboardMarkup(kb)
         )
         enterprise_chat_message_ids[user_id].append(init_msg.message_id)
