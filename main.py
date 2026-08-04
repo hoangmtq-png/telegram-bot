@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.8 (FIXED MODEL DISCOVERY & STABLE API)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.9 (STABLE GEMINI MODELS - NO MORE 404)
 # ====================================================================================================
 
 import os
@@ -61,6 +61,14 @@ if GEMINI_API_KEY:
 else:
     logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
 
+# DANH SÁCH MÔ HÌNH CHUẨN ỔN ĐỊNH CỦA GOOGLE
+STABLE_GEMINI_MODELS = [
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash",
+    "gemini-1.0-pro"
+]
+
 
 # ----------------------------------------------------------------------------------------------------
 # 3. TRA CỨU WEB DUCKDUCKGO
@@ -85,37 +93,27 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TỰ ĐỘNG CHỌN GEMINI MODEL KHẢ DỤNG KHÔNG BỊ LỖI 404
+# 4. HÀM CHỌN GEMINI MODEL VÀ TẠO CÂU TRẢ LỜI AN TOÀN
 # ----------------------------------------------------------------------------------------------------
-def get_working_gemini_model(system_instruction: str = None):
+def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
-        return None
-    try:
-        models = [
-            m.name for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        # Ưu tiên theo thứ tự flash -> pro -> bất kỳ model khả dụng nào
-        selected = None
-        for m in models:
-            if 'gemini-1.5-flash' in m or 'flash' in m:
-                selected = m
-                break
-        if not selected:
-            for m in models:
-                if 'gemini-1.5-pro' in m or 'pro' in m:
-                    selected = m
-                    break
-        if not selected and models:
-            selected = models[0]
+        return "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị thiếu trên Render!"
 
-        if selected:
-            logger.info(f"Sử dụng Gemini Model: {selected}")
-            return genai.GenerativeModel(model_name=selected, system_instruction=system_instruction)
-    except Exception as e:
-        logger.error(f"Lỗi khi lấy danh sách Gemini Model: {e}")
-    return None
+    for model_name in STABLE_GEMINI_MODELS:
+        try:
+            logger.info(f"Đang thử gửi yêu cầu tới Gemini Model: {model_name}")
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=system_instruction
+            )
+            res = model.generate_content(prompt)
+            if res and res.text:
+                return res.text
+        except Exception as e:
+            logger.warning(f"Model {model_name} không khả dụng ({e}), đang chuyển sang model tiếp theo...")
+            continue
+
+    return "❌ Tất cả các mô hình Gemini hiện tại đều không phản hồi. Vui lòng kiểm tra lại API Key!"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -391,18 +389,12 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         need_search = False
         search_query = raw_text
 
-        # 1. Phân loại ý định có cần Search Web hay không
-        router_model = get_working_gemini_model()
-        if router_model:
-            try:
-                intent_res = router_model.generate_content(
-                    f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, bài hát, thời tiết, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
-                )
-                if intent_res.text.strip().startswith("SEARCH:"):
-                    need_search = True
-                    search_query = intent_res.text.strip().replace("SEARCH:", "").strip()
-            except Exception as e:
-                logger.error(f"Lỗi phân loại ý định: {e}")
+        # 1. Phân loại ý định tra cứu bằng Gemini
+        intent_prompt = f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, bài hát, thời tiết, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
+        intent_res = generate_gemini_response(intent_prompt)
+        if intent_res.strip().startswith("SEARCH:"):
+            need_search = True
+            search_query = intent_res.strip().replace("SEARCH:", "").strip()
 
         # 2. Tra cứu Web nếu cần
         search_data = enterprise_search_web(search_query) if need_search else ""
@@ -424,16 +416,8 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             "3. Xưng hô thân thiện (dùng 'tôi' hoặc 'Heo Đất')."
         )
 
-        # 3. Tạo câu trả lời bằng Gemini Model khả dụng
-        reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị sai/hết hạn trên Render!"
-        ai_model = get_working_gemini_model(system_instruction=system_instruction)
-        if ai_model:
-            try:
-                res = ai_model.generate_content(prompt_with_context)
-                reply_content = res.text
-            except Exception as e:
-                logger.error(f"Lỗi khi gọi Gemini: {e}")
-                reply_content = f"❌ Lỗi xử lý AI: {e}"
+        # 3. Tạo câu trả lời AI chính thức
+        reply_content = generate_gemini_response(prompt_with_context, system_instruction=system_instruction)
 
         try:
             await thinking.delete()
