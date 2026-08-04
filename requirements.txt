@@ -1,5 +1,5 @@
 flask
 python-telegram-bot[job-queue]
-google-genai
+google-generativeai
 duckduckgo_search
 tzdata
