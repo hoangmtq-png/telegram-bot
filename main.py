@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.6 (FIXED GEMINI MODEL 1.5)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.7 (FIXED STABLE GEMINI SDK)
 # ====================================================================================================
 
 import os
@@ -20,8 +20,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from duckduckgo_search import DDGS
 
 # ----------------------------------------------------------------------------------------------------
@@ -56,13 +55,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EnterpriseProductionCore")
 
-try:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-except Exception as e:
-    logger.error(f"Khởi tạo Gemini Client thất bại: {e}")
-    gemini_client = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    logger.info("✅ Đã cấu hình Gemini API Key thành công!")
+else:
+    logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
 
-# CẬP NHẬT TÊN MODEL CHUẨN TỪ GOOGLE
 GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro"]
 
 
@@ -335,7 +333,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. XỬ LÝ TIN NHẮN (SỬA LẠI TÊN MODEL GEMINI CHUẨN GOOGLE)
+# 7. XỬ LÝ TIN NHẮN (CHUẨN HÓA GENERATIVE AI API)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -364,15 +362,11 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         need_search = False
         search_query = raw_text
         
-        if gemini_client:
+        if GEMINI_API_KEY:
             try:
-                intent_res = gemini_client.models.generate_content(
-                    model="gemini-1.5-flash",  # <--- Đã sửa chuẩn Gemini 1.5
-                    contents=raw_text,
-                    config=types.GenerateContentConfig(
-                        system_instruction="Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, nghệ sĩ, bài hát, giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'.",
-                        temperature=0.1
-                    )
+                router_model = genai.GenerativeModel("gemini-1.5-flash")
+                intent_res = router_model.generate_content(
+                    f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, nghệ sĩ, bài hát, giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
                 )
                 if intent_res.text.strip().startswith("SEARCH:"):
                     need_search = True
@@ -400,17 +394,14 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         )
 
         reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị lỗi!"
-        if gemini_client:
+        if GEMINI_API_KEY:
             for model_name in GEMINI_MODELS:
                 try:
-                    res = gemini_client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_with_context,
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_instruction,
-                            temperature=0.2
-                        )
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=system_instruction
                     )
+                    res = model.generate_content(prompt_with_context)
                     reply_content = res.text
                     break
                 except Exception as e:
