@@ -517,7 +517,7 @@ def main() -> None:
 
     application.add_handler(CommandHandler("start", enterprise_command_start_handler))
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, enterprise_incoming_message_dispatcher))
 
     # Khởi chạy polling chuẩn xác cho python-telegram-bot v20+
     application.run_polling(drop_pending_updates=True)
