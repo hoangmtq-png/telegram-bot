@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (RENDER READY & GEMINI INTEGRATED)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0 (GEMINI & RENDER READY)
 # ====================================================================================================
 
 import os
@@ -23,9 +23,8 @@ from google.genai import types
 from duckduckgo_search import DDGS
 
 # ----------------------------------------------------------------------------------------------------
-# CẤU HÌNH MÔI TRƯỜNG & LOGGING (AN TOÀN CHO RENDER)
+# 1. CẤU HÌNH MÔI TRƯỜNG & LOGGING (AN TOÀN CHO RENDER)
 # ----------------------------------------------------------------------------------------------------
-# Ẩn hoàn toàn Token, chỉ lấy từ Environment Variables trên Render
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
@@ -42,10 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EnterpriseProductionCore")
 
-if not TELEGRAM_BOT_TOKEN:
-    logger.critical("LỖI NHIỆM VỤ: Chưa cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables của Render!")
-
-# Khởi tạo Gemini Client
+# Khởi tạo Gemini Client từ SDK chính thức
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 except Exception as e:
@@ -56,9 +52,10 @@ GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-lite"]
 
 
 # ----------------------------------------------------------------------------------------------------
-# HỆ THỐNG TÌM KIẾM INTERNET THÔNG MINH
+# 2. HỆ THỐNG TÌM KIẾM INTERNET THÔNG MINH
 # ----------------------------------------------------------------------------------------------------
 def enterprise_search_web(query: str, max_results: int = 3) -> str:
+    """Hàm tra cứu thông tin thực tế từ Internet."""
     try:
         logger.info(f"Đang thực hiện tra cứu web cho từ khóa: {query}")
         with DDGS() as ddgs:
@@ -78,11 +75,10 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# QUẢN LÝ DỮ LIỆU NGUỜI DÙNG (IN-MEMORY DATABASE)
+# 3. QUẢN LÝ DỮ LIỆU NGƯỜI DÙNG (IN-MEMORY DATABASE)
 # ----------------------------------------------------------------------------------------------------
 enterprise_user_registry: Dict[int, Dict[str, Any]] = {}
 enterprise_user_states: Dict[int, str] = {}
-enterprise_chat_histories: Dict[int, List[Dict[str, str]]] = {}
 
 
 def enterprise_bootstrap_user(user_id: int) -> None:
@@ -99,12 +95,9 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "budget_limit": 15000000.0,
         }
 
-    if user_id not in enterprise_chat_histories:
-        enterprise_chat_histories[user_id] = []
-
 
 # ----------------------------------------------------------------------------------------------------
-# GIAO DIỆN BẢNG ĐIỀU KHIỂN (ĐÃ XÓA MENU KIỂM TOÁN)
+# 4. GIAO DIỆN BẢNG ĐIỀU KHIỂN (MENU TỐI ƯU)
 # ----------------------------------------------------------------------------------------------------
 def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     enterprise_bootstrap_user(user_id)
@@ -153,17 +146,16 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
         f"💰 Tích lũy qua {saved_days} ngày hoạt động."
     )
 
-    # Đã xóa menu "📜 KIỂM TOÁN" theo yêu cầu
     keyboard = [
         [InlineKeyboardButton("➕ 📥 NẠP THU", callback_data="ent_add_income"), InlineKeyboardButton("➖ 📤 RÚT CHI", callback_data="ent_add_expense")],
-        [InlineKeyboardButton("📜 SỔ GIAO DỊCH / SỬA", callback_data="ent_view_history"), InlineKeyboardButton("📋 SỔ CHI TIẾT", callback_data="ent_view_detail_ledger")],
+        [InlineKeyboardButton("📜 SỔ GIAO DỊCH / SỬA", callback_data="ent_view_history")],
         [InlineKeyboardButton("📈 BÁO CÁO NĂM", callback_data="ent_view_year"), InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN AI", callback_data="ent_chat_ai_mode")]
     ]
     return dashboard_text, InlineKeyboardMarkup(keyboard)
 
 
 # ----------------------------------------------------------------------------------------------------
-# XỬ LÝ SỰ KIỆN CALLBACK MENU TELEGRAM (ĐÃ TỐI ƯU GIAO DIỆN)
+# 5. XỬ LÝ SỰ KIỆN CALLBACK MENU TELEGRAM
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_command_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -193,7 +185,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
     elif data == "ent_chat_ai_mode":
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
-        await query.message.edit_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro (Gemini Powered).\nHãy nhắn nội dung bạn cần trò chuyện hoặc tra cứu!", reply_markup=InlineKeyboardMarkup(kb))
+        await query.message.edit_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nHãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", reply_markup=InlineKeyboardMarkup(kb))
 
     elif data == "ent_view_history":
         hist = enterprise_user_registry[user_id]["transaction_history"][-5:]
@@ -201,14 +193,13 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         
         kb = []
         if hist:
-            # Nút hỗ trợ XÓA / CHỈNH SỬA giao dịch nhập sai
+            # Cho phép xóa giao dịch nhập sai gần nhất
             kb.append([InlineKeyboardButton("🔄 XÓA GIAO DỊCH GẦN NHẤT", callback_data="ent_undo_last_tx")])
         kb.append([InlineKeyboardButton("🔙 Quay lại Menu", callback_data="ent_back_home")])
         
         await query.message.edit_text(f"📜 5 Giao dịch gần nhất:\n\n{content}", reply_markup=InlineKeyboardMarkup(kb))
 
     elif data == "ent_undo_last_tx":
-        # Tính năng chỉnh sửa: Trừ ngược lại giao dịch nhập sai gần nhất
         hist = enterprise_user_registry[user_id]["transaction_history"]
         if hist:
             last_tx = hist.pop()
@@ -220,11 +211,10 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
                 enterprise_user_registry[user_id]["daily_expense"] = max(0.0, enterprise_user_registry[user_id]["daily_expense"] - val)
                 enterprise_user_registry[user_id]["yearly_expense"] = max(0.0, enterprise_user_registry[user_id]["yearly_expense"] - val)
 
-            await query.answer("✅ Đã hoàn tác/xóa giao dịch nhập sai thành công!", show_alert=True)
+            await query.answer("✅ Đã xóa giao dịch nhập sai thành công!", show_alert=True)
         else:
             await query.answer("❌ Không có giao dịch nào để xóa!", show_alert=True)
         
-        # Cập nhật lại giao diện Dashboard
         text, markup = enterprise_render_dashboard_menu(user_id)
         await query.message.edit_text(text, reply_markup=markup)
 
@@ -241,7 +231,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# XỬ LÝ TIN NHẮN VĂN BẢN (THU/CHI & AI CHAT)
+# 6. XỬ LÝ TIN NHẮN VĂN BẢN (THU/CHI & GEMINI AI CHAT CHỐNG ẢO GIÁC)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -250,7 +240,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
     state = enterprise_user_states.get(user_id, None)
 
-    # 1. Chế độ trò chuyện AI
+    # 1. Chế độ AI Chat
     if state == "ENTERPRISE_AI_CHAT":
         exit_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "bye", "đóng", "thoát", "menu"]
         if any(cmd in raw_text.lower() for cmd in exit_keywords):
@@ -259,7 +249,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             await update.message.reply_text("🐷 Đã thoát chế độ AI. Trở về bảng điều khiển:", reply_markup=markup)
             return
 
-        thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang suy nghĩ...")
+        thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang xử lý...")
         
         need_search = False
         search_query = raw_text
@@ -270,7 +260,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                     model="gemini-2.5-flash",
                     contents=raw_text,
                     config=types.GenerateContentConfig(
-                        system_instruction="Nếu tin nhắn yêu cầu tra cứu thực tế/tin tức/giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'.",
+                        system_instruction="Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, nghệ sĩ, bài hát, giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'.",
                         temperature=0.1
                     )
                 )
@@ -281,7 +271,24 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 logger.error(f"Lỗi phân loại ý định: {e}")
 
         search_data = enterprise_search_web(search_query) if need_search else ""
-        prompt_with_context = f"Câu hỏi: '{raw_text}'\nTra cứu web:\n{search_data}" if need_search and search_data else raw_text
+        
+        if need_search and search_data and "Không tìm thấy kết quả" not in search_data:
+            prompt_with_context = (
+                f"Câu hỏi của người dùng: '{raw_text}'\n"
+                f"Dữ liệu thực tế từ Internet:\n{search_data}\n\n"
+                f"Yêu cầu: Hãy tổng hợp dữ liệu trên để trả lời chính xác. Tuyệt đối KHÔNG tự sáng tác thêm thông tin sai sự thật."
+            )
+        else:
+            prompt_with_context = raw_text
+
+        # System Instruction siết chặt quy tắc để CHỐNG BỊA THÔNG TIN (Hallucination)
+        system_instruction = (
+            "Bạn là trợ lý Heo Đất AI Pro thông minh và trung thực. "
+            "QUY TẮC BẮT BUỘC:\n"
+            "1. Chỉ trả lời dựa trên sự thật thực tế. Nếu không chắc chắn hoặc không có dữ liệu, hãy thành thật trả lời là không biết.\n"
+            "2. Tuyệt đối KHÔNG tự bịa ra tên bài hát, tác giả, tác phẩm hay sự kiện không có thật.\n"
+            "3. Xưng hô lịch sự, thân thiện (dùng 'tôi' hoặc 'Heo Đất')."
+        )
 
         reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY trên Render!"
         if gemini_client:
@@ -291,8 +298,8 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                         model=model_name,
                         contents=prompt_with_context,
                         config=types.GenerateContentConfig(
-                            system_instruction="Bạn là trợ lý Heo Đất AI Pro thông minh, vui vẻ và chính xác.",
-                            temperature=0.7
+                            system_instruction=system_instruction,
+                            temperature=0.2  # Giảm chỉ số sáng tạo để AI trả lời chính xác
                         )
                     )
                     reply_content = res.text
@@ -309,7 +316,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         try:
             val = enterprise_parse_amount(raw_text)
         except ValueError:
-            await update.message.reply_text("❌ Định dạng số tiền chưa đúng! Vui lòng nhập kiểu như: 50k, 2tr, 1.5m")
+            await update.message.reply_text("❌ Định dạng số tiền chưa đúng! Ví dụ nhập: 50k, 2tr, 1.5m")
             return
 
         time_str = datetime.now().strftime("%H:%M")
@@ -329,7 +336,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         await update.message.reply_text(text, reply_markup=markup)
         return
 
-    # Mặc định hướng dẫn dùng lệnh /start nếu bấm lung tung
+    # Mặc định mở Menu chính
     text, markup = enterprise_render_dashboard_menu(user_id)
     await update.message.reply_text(text, reply_markup=markup)
 
@@ -347,11 +354,11 @@ def enterprise_parse_amount(text: str) -> float:
 
 
 # ----------------------------------------------------------------------------------------------------
-# KHỞI CHẠY BOT
+# 7. KHỞI CHẠY ỨNG DỤNG
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("KHÔNG THỂ KHỞI CHẠY BOT: Vui lòng cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables trên Render!")
+        logger.error("LỖI: Vui lòng cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables của Render!")
         return
 
     logger.info("🚀 Đang khởi chạy Heo Đất AI Pro (Render Ready)...")
