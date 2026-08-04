@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (AUTO MODEL FALLBACK & ASYNCIO)
+# HEO ĐẤT AI PRO - ULTRA MONOLITHIC ENTERPRISE MEGA CORE (FIXED & ENHANCED)
 # ====================================================================================================
 
 import os
@@ -7,7 +7,6 @@ import sys
 import json
 import asyncio
 import logging
-import hashlib
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -38,7 +37,7 @@ except ImportError:
         pass
 
 logging.basicConfig(
-    format="%(asctime)s | LEVEL:%(levelname)s | THREAD:%(threadName)s | FILE:%(filename)s:%(lineno)d | MSG:%(message)s",
+    format="%(asctime)s | LEVEL:%(levelname)s | MSG:%(message)s",
     level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -57,7 +56,6 @@ except Exception as e:
     logger.error(f"Khởi tạo Groq Client thất bại: {e}")
     groq_client = None
 
-# Danh sách model ưu tiên: Tự động chuyển xuống model nhẹ hơn nếu hết token (429)
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 
@@ -65,16 +63,9 @@ GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 # HỆ THỐNG TÌM KIẾM INTERNET THÔNG MINH (OPTIMIZED SEARCH AGENT)
 # ----------------------------------------------------------------------------------------------------
 def enterprise_search_web(query: str, max_results: int = 3) -> str:
-    """Hàm tra cứu thông tin tối ưu hóa cho tiếng Việt và dữ liệu giải trí/âm nhạc."""
     try:
-        logger.info(f"Đang thực hiện tra cứu web thông minh cho từ khóa: {query}")
         with DDGS() as ddgs:
             results = [r for r in ddgs.text(query, max_results=max_results)]
-            
-            if not results and "bài hát" not in query.lower():
-                fallback_query = f"bài hát {query}"
-                results = [r for r in ddgs.text(fallback_query, max_results=max_results)]
-
             if not results:
                 return "Không tìm thấy kết quả trực tuyến phù hợp."
             
@@ -92,21 +83,16 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ NHỚ TRONG & CƠ SỞ DỮ LIỆU ĐĂNG KÝ (IN-MEMORY ENTERPRISE REGISTRY)
+# BỘ NHỚ TRONG & CƠ SỞ DỮ LIỆU ĐĂNG KÝ
 # ----------------------------------------------------------------------------------------------------
 enterprise_user_registry: Dict[int, Dict[str, Any]] = {}
 enterprise_user_states: Dict[int, str] = {}
-enterprise_message_tracker: Dict[int, List[int]] = {}
-enterprise_menu_pointers: Dict[int, int] = {}
 enterprise_chat_histories: Dict[int, List[Dict[str, str]]] = {}
-enterprise_audit_ledgers: Dict[int, List[Dict[str, Any]]] = {}
 
 
 def enterprise_bootstrap_user(user_id: int) -> None:
     if user_id not in enterprise_user_registry:
         enterprise_user_registry[user_id] = {
-            "profile_id": user_id,
-            "created_at": datetime.now().isoformat(),
             "daily_income": 0.0,
             "daily_expense": 0.0,
             "yearly_income": 0.0,
@@ -114,8 +100,6 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "saved_days": 1,
             "transaction_history": [],
             "budget_limit": 15000000.0,
-            "currency_unit": "VND",
-            "account_tier": "VIP_ENTERPRISE"
         }
 
     if user_id not in enterprise_chat_histories:
@@ -128,9 +112,6 @@ def enterprise_bootstrap_user(user_id: int) -> None:
                 )
             }
         ]
-
-    if user_id not in enterprise_audit_ledgers:
-        enterprise_audit_ledgers[user_id] = []
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -174,7 +155,7 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
 
     dashboard_text = (
         "╔══════════════════════════════════════════════════╗\n"
-        "      🐷 HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0       \n"
+        "      🐷 HEO ĐẤT AI PRO - ENTERPRISE CORE 3.1       \n"
         "╚══════════════════════════════════════════════════╝\n\n"
         f"  📌 Trạng thái: {badge}\n"
         f"  📥 Tổng Thu Nhập: {d_inc:,.0f} đ\n"
@@ -187,113 +168,100 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
 
     keyboard = [
         [InlineKeyboardButton("➕ 📥 NẠP THU", callback_data="ent_add_income"), InlineKeyboardButton("➖ 📤 RÚT CHI", callback_data="ent_add_expense")],
-        [InlineKeyboardButton("📜 SỔ GIAO DỊCH", callback_data="ent_view_history"), InlineKeyboardButton("📋 SỔ CHI TIẾT", callback_data="ent_view_detail_ledger")],
-        [InlineKeyboardButton("📈 BÁO CÁO NĂM", callback_data="ent_view_year"), InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN AI", callback_data="ent_chat_ai_mode")],
-        [InlineKeyboardButton("⚙️ CÀI ĐẶT NGÂN SÁCH", callback_data="ent_settings_budget"), InlineKeyboardButton("📜 KIỂM TOÁN", callback_data="ent_audit_report")]
+        [InlineKeyboardButton("📜 SỔ GIAO DỊCH & XÓA", callback_data="ent_view_history"), InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN AI", callback_data="ent_chat_ai_mode")],
+        [InlineKeyboardButton("📈 BÁO CÁO NĂM", callback_data="ent_view_year")]
     ]
     return dashboard_text, InlineKeyboardMarkup(keyboard)
 
 
 # ----------------------------------------------------------------------------------------------------
-# XỬ LÝ LỆNH & SỰ KIỆN CALLBACK
+# XỬ LÝ LỆNH & SỰ KIỆN CALLBACK (ĐÃ SỬA LỖI ĐƠ MENU & THÊM TÍNH NĂNG XÓA GIAO DỊCH)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_command_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
     enterprise_bootstrap_user(user_id)
+    enterprise_user_states.pop(user_id, None)
     text, markup = enterprise_render_dashboard_menu(user_id)
 
-    if user_id in enterprise_menu_pointers:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
-        except Exception:
-            pass
-
     if update.callback_query:
-        try:
-            await update.callback_query.message.delete()
-        except Exception:
-            pass
         await update.callback_query.answer()
-
-    msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
-    enterprise_menu_pointers[user_id] = msg.message_id
+        await update.callback_query.message.edit_text(text=text, reply_markup=markup)
+    else:
+        await update.message.reply_text(text=text, reply_markup=markup)
 
 
 async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    chat_id = query.message.chat_id
     data = query.data
 
     enterprise_bootstrap_user(user_id)
 
     if data == "ent_add_income":
         enterprise_user_states[user_id] = "WAITING_INCOME_INPUT"
-        m = await query.message.reply_text("📥 Nhập số tiền thu nhập (Ví dụ: 50k, 2tr):")
-        enterprise_message_tracker.setdefault(user_id, []).append(m.message_id)
+        kb = [[InlineKeyboardButton("🔙 Hủy bỏ", callback_data="ent_back_home")]]
+        await query.message.edit_text("📥 **Nhập số tiền thu nhập** (Ví dụ: 50k, 2tr, 500000):\n\n*(Nhập trực tiếp số tiền vào khung chat)*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     elif data == "ent_add_expense":
         enterprise_user_states[user_id] = "WAITING_EXPENSE_INPUT"
-        m = await query.message.reply_text("📤 Nhập số tiền chi tiêu (Ví dụ: 100k, 1.5tr):")
-        enterprise_message_tracker.setdefault(user_id, []).append(m.message_id)
+        kb = [[InlineKeyboardButton("🔙 Hủy bỏ", callback_data="ent_back_home")]]
+        await query.message.edit_text("📤 **Nhập số tiền chi tiêu** (Ví dụ: 100k, 1.5tr):\n\n*(Nhập trực tiếp số tiền vào khung chat)*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     elif data == "ent_chat_ai_mode":
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
-        enterprise_message_tracker[user_id] = []
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
-        m = await query.message.reply_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro. Hãy trò chuyện hoặc tra cứu thông tin với tôi!", reply_markup=InlineKeyboardMarkup(kb))
-        enterprise_message_tracker[user_id].append(m.message_id)
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
+        await query.message.edit_text("🐷🤖 **Đã kích hoạt chế độ Heo Đất AI Pro.**\n\nBạn có thể nhắn tin hỏi đáp hoặc tra cứu thông tin trực tiếp tại đây!", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     elif data == "ent_view_history":
         hist = enterprise_user_registry[user_id]["transaction_history"][-5:]
-        content = "\n".join([f"🔹 [{x['time']}] {x['type']}: {x['amount']:,.0f} đ" for x in hist]) if hist else "✨ Chưa có giao dịch."
-        kb = [[InlineKeyboardButton("🔙 Quay lại", callback_data="ent_back_home")]]
-        await query.message.edit_text(f"📜 5 Giao dịch gần nhất:\n\n{content}", reply_markup=InlineKeyboardMarkup(kb))
+        content = "\n".join([f"🔹 [{x['time']}] **{x['type']}**: {x['amount']:,.0f} đ" for x in hist]) if hist else "✨ Chưa có giao dịch nào được ghi nhận."
+        
+        kb = [
+            [InlineKeyboardButton("↩️ XÓA GIAO DỊCH GẦN NHẤT", callback_data="ent_undo_last_tx")],
+            [InlineKeyboardButton("🔙 Quay lại Menu", callback_data="ent_back_home")]
+        ]
+        await query.message.edit_text(f"📜 **5 Giao dịch gần nhất:**\n\n{content}", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+    elif data == "ent_undo_last_tx":
+        reg = enterprise_user_registry[user_id]
+        if reg["transaction_history"]:
+            last_tx = reg["transaction_history"].pop()
+            amt = last_tx["amount"]
+            if last_tx["type"] == "Thu":
+                reg["daily_income"] -= amt
+                reg["yearly_income"] -= amt
+            else:
+                reg["daily_expense"] -= amt
+                reg["yearly_expense"] -= amt
+            
+            await query.answer(f"Đã xóa giao dịch {last_tx['type']} {amt:,.0f}đ thành công!", show_alert=True)
+        else:
+            await query.answer("Không có giao dịch nào để xóa!", show_alert=True)
+        
+        # Trở lại màn hình lịch sử
+        hist = reg["transaction_history"][-5:]
+        content = "\n".join([f"🔹 [{x['time']}] **{x['type']}**: {x['amount']:,.0f} đ" for x in hist]) if hist else "✨ Chưa có giao dịch nào."
+        kb = [
+            [InlineKeyboardButton("↩️ XÓA GIAO DỊCH GẦN NHẤT", callback_data="ent_undo_last_tx")],
+            [InlineKeyboardButton("🔙 Quay lại Menu", callback_data="ent_back_home")]
+        ]
+        await query.message.edit_text(f"📜 **5 Giao dịch gần nhất (Đã cập nhật):**\n\n{content}", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     elif data == "ent_view_year":
         reg = enterprise_user_registry[user_id]
         inc, exp = reg["yearly_income"], reg["yearly_expense"]
         kb = [[InlineKeyboardButton("🔙 Quay lại", callback_data="ent_back_home")]]
-        await query.message.edit_text(f"📈 Báo cáo năm:\n🟢 Thu: {inc:,.0f} đ\n🔴 Chi: {exp:,.0f} đ", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "ent_audit_report":
-        audits = enterprise_audit_ledgers[user_id][-5:]
-        content = "\n".join([f"[{a['timestamp']}] {a['action']}" for a in audits])
-        kb = [[InlineKeyboardButton("🔙 Quay lại", callback_data="ent_back_home")]]
-        await query.message.edit_text(f"📜 Nhật ký kiểm toán:\n\n{content}", reply_markup=InlineKeyboardMarkup(kb))
+        await query.message.edit_text(f"📈 **Báo cáo năm:**\n\n🟢 Tổng Thu: {inc:,.0f} đ\n🔴 Tổng Chi: {exp:,.0f} đ", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
     elif data == "ent_back_home":
-        if user_id in enterprise_message_tracker:
-            for mid in enterprise_message_tracker[user_id]:
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=mid)
-                except Exception:
-                    pass
-            enterprise_message_tracker[user_id] = []
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
-        if user_id in enterprise_menu_pointers:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
-            except Exception:
-                pass
-
         enterprise_user_states.pop(user_id, None)
         text, markup = enterprise_render_dashboard_menu(user_id)
-        msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
-        enterprise_menu_pointers[user_id] = msg.message_id
+        await query.message.edit_text(text=text, reply_markup=markup)
 
 
 # ----------------------------------------------------------------------------------------------------
-# BỘ ĐIỀU PHỐI TIN NHẮN & ĐỊNH TUYẾN Ý ĐỊNH THÔNG MINH (AUTO FALLBACK MODEL)
+# BỘ ĐIỀU PHỐI TIN NHẮN CHAT & XỬ LÝ NHẬP LIỆU THU/CHI
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -303,147 +271,85 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
     enterprise_bootstrap_user(user_id)
     state = enterprise_user_states.get(user_id, "ENTERPRISE_AI_CHAT")
 
+    # Xóa tin nhắn người dùng nhập để gọn khung chat
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     if state == "ENTERPRISE_AI_CHAT":
-        exit_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "bye", "đóng", "thoát", "menu"]
-        if any(cmd in raw_text.lower() for cmd in exit_keywords):
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
-
-            if user_id in enterprise_message_tracker:
-                for msg_id in enterprise_message_tracker[user_id]:
-                    try:
-                        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                    except Exception:
-                        pass
-                enterprise_message_tracker[user_id] = []
-
-            if user_id in enterprise_menu_pointers:
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
-                except Exception:
-                    pass
-
-            enterprise_user_states.pop(user_id, None)
-            text, markup = enterprise_render_dashboard_menu(user_id)
-            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
-            enterprise_menu_pointers[user_id] = msg.message_id
-            return
-
-        try:
-            enterprise_message_tracker.setdefault(user_id, []).append(update.message.message_id)
-            await update.message.delete()
-        except Exception:
-            pass
-
         thinking = await context.bot.send_message(chat_id=chat_id, text="🐷 Heo Đất AI Pro đang soạn...")
-        enterprise_message_tracker[user_id].append(thinking.message_id)
 
-        # 1. Phân loại ý định với cơ chế Fallback qua các model
         need_search = False
         search_query = raw_text
         
         if groq_client:
             for model_name in GROQ_MODELS:
-                intent_success = False
-                for attempt in range(2):
-                    try:
-                        intent_res = groq_client.chat.completions.create(
-                            messages=[
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "Bạn là bộ định tuyến ý định. Hãy phân tích tin nhắn của người dùng. "
-                                        "Nếu tin nhắn yêu cầu tìm kiếm thông tin thực tế, kiến thức mới, thời sự, giá cả, hoặc tìm tên bài hát/lời bài hát, hãy trả về 'SEARCH: <từ khóa tìm kiếm>'. "
-                                        "Nếu đó là lời chào hỏi, trò chuyện thông thường, xã giao, hoặc tự luận cá nhân không cần tra cứu mạng, hãy trả về 'CHAT'."
-                                    )
-                                },
-                                {"role": "user", "content": raw_text}
-                            ],
-                            model=model_name,
-                            temperature=0.1
-                        )
-                        decision = intent_res.choices[0].message.content.strip()
-                        if decision.startswith("SEARCH:"):
-                            need_search = True
-                            search_query = decision.replace("SEARCH:", "").strip()
-                        intent_success = True
-                        break
-                    except Exception as e:
-                        if "429" in str(e):
-                            break
-                        elif attempt < 1:
-                            await asyncio.sleep(1)
-                            continue
-                if intent_success:
+                try:
+                    intent_res = groq_client.chat.completions.create(
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "Phân tích ý định. Nếu cần tìm kiếm thông tin thực tế, giá cả, thời sự hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'."
+                            },
+                            {"role": "user", "content": raw_text}
+                        ],
+                        model=model_name,
+                        temperature=0.1
+                    )
+                    decision = intent_res.choices[0].message.content.strip()
+                    if decision.startswith("SEARCH:"):
+                        need_search = True
+                        search_query = decision.replace("SEARCH:", "").strip()
                     break
+                except Exception:
+                    continue
 
-        # 2. Thực hiện tìm kiếm web nếu ý định yêu cầu
-        search_data = ""
-        if need_search:
-            search_data = enterprise_search_web(search_query)
+        search_data = enterprise_search_web(search_query) if need_search else ""
 
-        # 3. Tổng hợp prompt gửi LLM
-        if need_search and search_data and "Không tìm thấy kết quả" not in search_data:
-            prompt_with_context = (
-                f"Câu hỏi của người dùng: '{raw_text}'\n"
-                f"Dữ liệu tra cứu từ internet:\n{search_data}\n\n"
-                f"Yêu cầu: Hãy tổng hợp thông tin trên để trả lời câu hỏi một cách chính xác, tự nhiên."
-            )
-        else:
-            prompt_with_context = raw_text
+        prompt_with_context = (
+            f"Câu hỏi: '{raw_text}'\nDữ liệu tra cứu:\n{search_data}" if need_search and search_data else raw_text
+        )
 
-        reply_content = raw_text
+        reply_content = "⚠️ Lỗi hệ thống AI."
         if groq_client:
-            success = False
             for model_name in GROQ_MODELS:
-                if success:
+                try:
+                    temp_messages = list(enterprise_chat_histories[user_id])
+                    temp_messages.append({"role": "user", "content": prompt_with_context})
+                    
+                    res = groq_client.chat.completions.create(
+                        messages=temp_messages,
+                        model=model_name,
+                        temperature=0.7
+                    )
+                    reply_content = res.choices[0].message.content
+                    
+                    enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
+                    enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
                     break
-                for attempt in range(2):
-                    try:
-                        temp_messages = list(enterprise_chat_histories[user_id])
-                        temp_messages.append({"role": "user", "content": prompt_with_context})
-                        
-                        res = groq_client.chat.completions.create(
-                            messages=temp_messages,
-                            model=model_name,
-                            temperature=0.7
-                        )
-                        reply_content = res.choices[0].message.content
-                        
-                        enterprise_chat_histories[user_id].append({"role": "user", "content": raw_text})
-                        enterprise_chat_histories[user_id].append({"role": "assistant", "content": reply_content})
-                        success = True
-                        break
-                    except Exception as e:
-                        if "429" in str(e):
-                            logger.warning(f"Model {model_name} hết hạn mức (429), đang chuyển sang model dự phòng...")
-                            break
-                        elif attempt < 1:
-                            await asyncio.sleep(2)
-                            continue
-                        logger.error(f"Groq API Error với {model_name}: {str(e)}")
-            
-            if not success:
-                reply_content = "⚠️ Tất cả các model của Groq đã chạm giới hạn hạn mức trong ngày (429). Vui lòng đổi API Key mới hoặc chờ reset quota!"
+                except Exception as e:
+                    if "429" in str(e):
+                        continue
 
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=thinking.message_id)
-            enterprise_message_tracker[user_id].remove(thinking.message_id)
         except Exception:
             pass
 
-        m = await context.bot.send_message(chat_id=chat_id, text=f"🐷 Heo Đất AI Pro:\n\n{reply_content}")
-        enterprise_message_tracker[user_id].append(m.message_id)
+        await context.bot.send_message(chat_id=chat_id, text=f"🐷 **Heo Đất AI Pro:**\n\n{reply_content}", parse_mode="Markdown")
         return
 
-    # Xử lý các trạng thái nhập thu/chi thông thường
+    # Xử lý khi user đang ở trạng thái nhập số tiền Thu / Chi
     try:
         val = enterprise_parse_amount(raw_text)
     except ValueError:
-        m_err = await update.message.reply_text("❌ Sai định dạng số tiền! (Ví dụ: 50k, 2tr)")
-        enterprise_message_tracker.setdefault(user_id, []).append(m_err.message_id)
+        m_err = await context.bot.send_message(chat_id=chat_id, text="❌ Sai định dạng số tiền! Vui lòng nhập lại (Ví dụ: 50k, 2tr).")
+        await asyncio.sleep(3)
+        try:
+            await m_err.delete()
+        except Exception:
+            pass
         return
 
     time_str = datetime.now().strftime("%H:%M")
@@ -458,30 +364,9 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
     enterprise_user_states.pop(user_id, None)
 
-    # Dọn dẹp tin nhắn chat và hiển thị lại Menu chính với số liệu mới cập nhật
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-    if user_id in enterprise_message_tracker:
-        for mid in enterprise_message_tracker[user_id]:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=mid)
-            except Exception:
-                pass
-        enterprise_message_tracker[user_id] = []
-
-    if user_id in enterprise_menu_pointers:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=enterprise_menu_pointers[user_id])
-        except Exception:
-            pass
-
+    # Hiển thị lại bảng điều khiển sau khi nhập thành công
     text, markup = enterprise_render_dashboard_menu(user_id)
-    msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
-    enterprise_menu_pointers[user_id] = msg.message_id
-    return
+    await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
 
 def enterprise_parse_amount(text: str) -> float:
@@ -497,10 +382,10 @@ def enterprise_parse_amount(text: str) -> float:
 
 
 # ----------------------------------------------------------------------------------------------------
-# KHỞI CHẠY ỨNG DỤNG CHÍNH (ENTRY POINT)
+# KHỞI CHẠY ỨNG DỤNG CHÍNH
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
-    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.0 (Auto Fallback Ready)...")
+    logger.info("Đang khởi động Heo Đất AI Pro - Enterprise Core 3.1...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
