@@ -184,9 +184,15 @@ async def cleanup_chat_messages(user_id: int, chat_id: int, context: ContextType
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_command_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     enterprise_bootstrap_user(user_id)
+    
+    # Dọn tin nhắn cũ nếu có
+    await cleanup_chat_messages(user_id, chat_id, context)
+    
     text, markup = enterprise_render_dashboard_menu(user_id)
-    await update.message.reply_text(text, reply_markup=markup)
+    msg = await update.message.reply_text(text, reply_markup=markup)
+    enterprise_chat_message_ids[user_id].append(msg.message_id)
 
 
 async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -269,11 +275,12 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         try:
             await query.message.edit_text(text, reply_markup=markup)
         except Exception:
-            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            enterprise_chat_message_ids[user_id].append(msg.message_id)
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. XỬ LÝ TIN NHẮN (TỰ ĐỘNG XÓA CHAT KHI ĐÓNG)
+# 7. XỬ LÝ TIN NHẮN (TỰ ĐỘNG XÓA TIN NHẮN RÁC & CẬP NHẬT MENU)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -283,6 +290,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
     state = enterprise_user_states.get(user_id, None)
 
+    # --- TRƯỜNG HỢP 1: ĐANG TRONG CHẾ ĐỘ CHAT AI ---
     if state == "ENTERPRISE_AI_CHAT":
         enterprise_chat_message_ids[user_id].append(update.message.message_id)
 
@@ -291,7 +299,8 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             await cleanup_chat_messages(user_id, chat_id, context)
             enterprise_user_states.pop(user_id, None)
             text, markup = enterprise_render_dashboard_menu(user_id)
-            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            enterprise_chat_message_ids[user_id].append(msg.message_id)
             return
 
         thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang xử lý...")
@@ -362,6 +371,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         enterprise_chat_message_ids[user_id].append(ai_msg.message_id)
         return
 
+    # --- TRƯỜNG HỢP 2: ĐANG NHẬP THU HOẶC CHI ---
     if state in ["WAITING_INCOME_INPUT", "WAITING_EXPENSE_INPUT"]:
         try:
             val = enterprise_parse_amount(raw_text)
@@ -383,11 +393,21 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
         enterprise_user_states.pop(user_id, None)
         text, markup = enterprise_render_dashboard_menu(user_id)
-        await update.message.reply_text(text, reply_markup=markup)
+        msg = await update.message.reply_text(text, reply_markup=markup)
+        enterprise_chat_message_ids[user_id].append(msg.message_id)
         return
 
+    # --- TRƯỜNG HỢP 3: NHẮN LINH TINH NGOÀI MENU (XÓA CHAT RÁC VÀ HIỆN MENU MỚI) ---
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+    await cleanup_chat_messages(user_id, chat_id, context)
+
     text, markup = enterprise_render_dashboard_menu(user_id)
-    await update.message.reply_text(text, reply_markup=markup)
+    new_menu = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+    enterprise_chat_message_ids[user_id].append(new_menu.message_id)
 
 
 def enterprise_parse_amount(text: str) -> float:
@@ -410,7 +430,7 @@ def main() -> None:
         logger.error("LỖI: Vui lòng cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables của Render!")
         return
 
-    # Kích hoạt server Flask giữ cổng
+    # Kích hoạt Keep-Alive Server Flask
     keep_alive()
     logger.info("🌐 Web Server Flask Keep-Alive đã chạy!")
 
