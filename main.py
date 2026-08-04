@@ -1,10 +1,11 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.2 (FIXED GEMINI 1.5 FLASH LATEST MODEL)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.3 (DIRECT REST API - PERMANENT FIX)
 # ====================================================================================================
 
 import os
 import sys
 import logging
+import requests
 from datetime import time, datetime
 from zoneinfo import ZoneInfo
 from threading import Thread
@@ -20,7 +21,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-import google.generativeai as genai
 from duckduckgo_search import DDGS
 
 # ----------------------------------------------------------------------------------------------------
@@ -55,15 +55,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EnterpriseProductionCore")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    logger.info("✅ Đã cấu hình Gemini API Key thành công!")
-else:
-    logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
-
-# MODEL CHUẨN ĐƯỢC SUPPORT TRÊN V1BETA GOOGLE API
-PRIMARY_MODEL_NAME = "gemini-1.5-flash"
-
 
 # ----------------------------------------------------------------------------------------------------
 # 3. TRA CỨU WEB DUCKDUCKGO
@@ -88,32 +79,49 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI CHUẨN
+# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI BẰNG REST API TRỰC TIẾP (KHÔNG DÙNG SDK CŨ)
 # ----------------------------------------------------------------------------------------------------
 def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
-        return "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị thiếu trên Render!"
+        return "⚠️ Chưa cấu hình GEMINI_API_KEY trên Render!"
 
-    # Thử danh sách các model chuẩn nhất hiện nay
-    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
-    last_error = ""
+    # Endpoint REST chuẩn của Google Gemini API
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-    for model_name in candidate_models:
-        try:
-            logger.info(f"Đang gọi Gemini Model: {model_name}")
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system_instruction
-            )
-            res = model.generate_content(prompt)
-            if res and res.text:
-                return res.text
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Thử model {model_name} thất bại: {e}")
-            continue
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
 
-    return f"❌ Lỗi kết nối Gemini API: {last_error}"
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        res_data = response.json()
+
+        if response.status_code == 200:
+            try:
+                return res_data['candidates'][0]['content']['parts'][0]['text']
+            except (KeyError, IndexError):
+                return "⚠️ Không nhận được phản hồi phù hợp từ AI."
+        else:
+            error_msg = res_data.get('error', {}).get('message', str(res_data))
+            logger.error(f"Lỗi REST API ({response.status_code}): {error_msg}")
+            return f"❌ Lỗi Gemini API ({response.status_code}): {error_msg}"
+
+    except Exception as e:
+        logger.error(f"Lỗi kết nối REST API: {e}")
+        return f"❌ Lỗi kết nối mạng: {e}"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -389,12 +397,10 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         need_search = False
         search_query = raw_text
 
-        # Phân loại ý định đơn giản qua từ khóa trước khi gọi AI để tối ưu tốc độ
         search_triggers = ["tìm", "tra", "search", "xem", "là gì", "ai là", "thời tiết", "mấy giờ", "bài hát", "tin tức", "giá"]
         if any(trig in raw_text.lower() for trig in search_triggers):
             need_search = True
 
-        # Tra cứu Web nếu cần
         search_data = enterprise_search_web(search_query) if need_search else ""
         
         if need_search and search_data and "Không tìm thấy kết quả" not in search_data:
