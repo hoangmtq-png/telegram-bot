@@ -1,12 +1,13 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0 (FLASK KEEP_ALIVE + TELEGRAM + GEMINI)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.5 (FLASK + TELEGRAM + GEMINI + GOALS + DAILY REPORT)
 # ====================================================================================================
 
 import os
 import sys
 import logging
+from datetime import time, datetime
+from zoneinfo import ZoneInfo
 from threading import Thread
-from datetime import datetime
 from typing import Dict, List, Any, Tuple
 
 from flask import Flask
@@ -106,13 +107,14 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "saved_days": 1,
             "transaction_history": [],
             "budget_limit": 15000000.0,
+            "target_amount": 50000000.0,  # Mặc định mục tiêu tiết kiệm: 50 triệu
         }
     if user_id not in enterprise_chat_message_ids:
         enterprise_chat_message_ids[user_id] = []
 
 
 # ----------------------------------------------------------------------------------------------------
-# 5. GIAO DIỆN BẢNG ĐIỀU KHIỂN
+# 5. GIAO DIỆN BẢNG ĐIỀU KHIỂN & MỤC TIÊU TÀI CHÍNH
 # ----------------------------------------------------------------------------------------------------
 def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     enterprise_bootstrap_user(user_id)
@@ -135,13 +137,21 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
     enterprise_bootstrap_user(user_id)
     metrics = enterprise_calculate_financial_health(user_id)
     d_inc, d_exp, balance = metrics["income"], metrics["expense"], metrics["net_balance"]
-    saved_days = enterprise_user_registry[user_id]["saved_days"]
-    budget_limit = enterprise_user_registry[user_id]["budget_limit"]
-    health = metrics["status"]
-
-    total = d_inc + d_exp
-    progress = ("🟢" * int((d_inc / total) * 10) + "🔴" * (10 - int((d_inc / total) * 10))) if total > 0 else "⚪️" * 10
     
+    user_data = enterprise_user_registry[user_id]
+    saved_days = user_data["saved_days"]
+    budget_limit = user_data["budget_limit"]
+    target_amount = user_data.get("target_amount", 50000000.0)
+    
+    # Tính tích lũy hiện tại (Thu tích lũy - Chi tích lũy)
+    total_saved = max(0.0, user_data["yearly_income"] - user_data["yearly_expense"])
+    
+    # Tính % tiến độ tích lũy mục tiêu
+    goal_percentage = min(100.0, (total_saved / target_amount * 100)) if target_amount > 0 else 0.0
+    goal_bar_blocks = int(goal_percentage // 10)
+    goal_progress_bar = "🟦" * goal_bar_blocks + "⬜️" * (10 - goal_bar_blocks)
+
+    health = metrics["status"]
     badge = "🟢 AN TOÀN"
     if health == "CRITICAL_OVER_BUDGET":
         badge = "🔴 VƯỢT NGÂN SÁCH"
@@ -153,17 +163,20 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
         "      🐷 HEO ĐẤT AI PRO - ENTERPRISE CORE           \n"
         "╚══════════════════════════════════════════════════╝\n\n"
         f"  📌 Trạng thái: {badge}\n"
-        f"  📥 Tổng Thu Nhập: {d_inc:,.0f} đ\n"
-        f"  📤 Tổng Chi Tiêu: {d_exp:,.0f} đ\n"
-        f"  💎 Số Dư Khả Dụng: {balance:,.0f} đ\n"
-        f"  🛡️ Hạn Mức Ngân Sách: {budget_limit:,.0f} đ\n\n"
-        f"📈 Biểu đồ dòng tiền:\n[{progress}]\n\n"
-        f"💰 Tích lũy qua {saved_days} ngày hoạt động."
+        f"  📥 Thu Hôm Nay: {d_inc:,.0f} đ\n"
+        f"  📤 Chi Hôm Nay: {d_exp:,.0f} đ\n"
+        f"  💎 Dư Trong Ngày: {balance:,.0f} đ\n"
+        f"  🛡️ Hạn Mức Chi Tiêu: {budget_limit:,.0f} đ\n"
+        "--------------------------------------------------\n"
+        f"🎯 **MỤC TIÊU TIẾT KIỆM:** {target_amount:,.0f} đ\n"
+        f"💰 **Đã Tích Lũy Được:** {total_saved:,.0f} đ ({goal_percentage:.1f}%)\n"
+        f"[{goal_progress_bar}]\n\n"
+        f"🗓️ Tích lũy qua {saved_days} ngày hoạt động."
     )
 
     keyboard = [
         [InlineKeyboardButton("➕ 📥 NẠP THU", callback_data="ent_add_income"), InlineKeyboardButton("➖ 📤 RÚT CHI", callback_data="ent_add_expense")],
-        [InlineKeyboardButton("📜 SỔ GIAO DỊCH / SỬA", callback_data="ent_view_history")],
+        [InlineKeyboardButton("📜 SỔ GIAO DỊCH / SỬA", callback_data="ent_view_history"), InlineKeyboardButton("🎯 ĐỔI MỤC TIÊU", callback_data="ent_set_target")],
         [InlineKeyboardButton("📈 BÁO CÁO NĂM", callback_data="ent_view_year"), InlineKeyboardButton("🤖 💬 TRÒ CHUYỆN AI", callback_data="ent_chat_ai_mode")]
     ]
     return dashboard_text, InlineKeyboardMarkup(keyboard)
@@ -179,6 +192,42 @@ async def cleanup_chat_messages(user_id: int, chat_id: int, context: ContextType
         enterprise_chat_message_ids[user_id] = []
 
 
+# --- BÁO CÁO TỰ ĐỘNG LÚC 00:00 ĐÊM ---
+async def daily_report_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("⏰ Bắt đầu tiến trình gửi Báo cáo Tự động lúc 00:00...")
+    for user_id, data in list(enterprise_user_registry.items()):
+        try:
+            inc = data["daily_income"]
+            exp = data["daily_expense"]
+            net = inc - exp
+            target = data.get("target_amount", 50000000.0)
+            total_saved = max(0.0, data["yearly_income"] - data["yearly_expense"])
+            goal_pct = min(100.0, (total_saved / target * 100)) if target > 0 else 0.0
+
+            report_msg = (
+                "🌙 **BÁO CÁO TỔNG KẾT NGHỈ ĐÊM (00:00)** 🌙\n"
+                "═══════════════════════════════════\n"
+                f"📥 Thu hôm nay: **{inc:,.0f} đ**\n"
+                f"📤 Chi hôm nay: **{exp:,.0f} đ**\n"
+                f"⚖️ Dư hôm nay: **{net:,.0f} đ**\n"
+                "-----------------------------------\n"
+                f"🎯 Mục tiêu: **{target:,.0f} đ**\n"
+                f"🏆 Hoàn thành: **{goal_pct:.1f}%** ({total_saved:,.0f} đ)\n"
+                "═══════════════════════════════════\n"
+                "✨ Hệ thống đã dọn dẹp số liệu ngày cũ để bắt đầu ngày mới!"
+            )
+            await context.bot.send_message(chat_id=user_id, text=report_msg, parse_mode="Markdown")
+            
+            # Reset số liệu trong ngày
+            data["daily_income"] = 0.0
+            data["daily_expense"] = 0.0
+            data["saved_days"] += 1
+            data["transaction_history"] = []
+            
+        except Exception as e:
+            logger.error(f"Lỗi gửi báo cáo cho User {user_id}: {e}")
+
+
 # ----------------------------------------------------------------------------------------------------
 # 6. XỬ LÝ SỰ KIỆN CALLBACK MENU
 # ----------------------------------------------------------------------------------------------------
@@ -187,11 +236,9 @@ async def enterprise_command_start_handler(update: Update, context: ContextTypes
     chat_id = update.effective_chat.id
     enterprise_bootstrap_user(user_id)
     
-    # Dọn tin nhắn cũ nếu có
     await cleanup_chat_messages(user_id, chat_id, context)
-    
     text, markup = enterprise_render_dashboard_menu(user_id)
-    msg = await update.message.reply_text(text, reply_markup=markup)
+    msg = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
     enterprise_chat_message_ids[user_id].append(msg.message_id)
 
 
@@ -213,6 +260,17 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         enterprise_user_states[user_id] = "WAITING_EXPENSE_INPUT"
         kb = [[InlineKeyboardButton("🔙 Hủy bỏ", callback_data="ent_back_home")]]
         await query.message.edit_text("📤 Nhập số tiền chi tiêu (Ví dụ: 100k, 1.5tr):", reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data == "ent_set_target":
+        enterprise_user_states[user_id] = "WAITING_TARGET_INPUT"
+        kb = [[InlineKeyboardButton("🔙 Hủy bỏ", callback_data="ent_back_home")]]
+        curr_target = enterprise_user_registry[user_id].get("target_amount", 50000000.0)
+        await query.message.edit_text(
+            f"🎯 **Mục tiêu hiện tại:** {curr_target:,.0f} đ\n\n"
+            "Hãy nhập Số tiền mục tiêu mới muốn tiết kiệm (Ví dụ: 20tr, 100m, 1 tỷ):",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="Markdown"
+        )
 
     elif data == "ent_chat_ai_mode":
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
@@ -259,7 +317,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
             await query.answer("❌ Không có giao dịch nào để xóa!", show_alert=True)
         
         text, markup = enterprise_render_dashboard_menu(user_id)
-        await query.message.edit_text(text, reply_markup=markup)
+        await query.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
 
     elif data == "ent_view_year":
         reg = enterprise_user_registry[user_id]
@@ -273,14 +331,14 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         
         text, markup = enterprise_render_dashboard_menu(user_id)
         try:
-            await query.message.edit_text(text, reply_markup=markup)
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
         except Exception:
-            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup, parse_mode="Markdown")
             enterprise_chat_message_ids[user_id].append(msg.message_id)
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. XỬ LÝ TIN NHẮN (TỰ ĐỘNG XÓA TIN NHẮN RÁC & CẬP NHẬT MENU)
+# 7. XỬ LÝ TIN NHẮN (NHẬP SỐ TIỀN / CHAT AI / TỰ DỌN MENU CŨ)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -290,7 +348,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
     state = enterprise_user_states.get(user_id, None)
 
-    # --- TRƯỜNG HỢP 1: ĐANG TRONG CHẾ ĐỘ CHAT AI ---
+    # --- CHẾ ĐỘ CHAT AI ---
     if state == "ENTERPRISE_AI_CHAT":
         enterprise_chat_message_ids[user_id].append(update.message.message_id)
 
@@ -299,7 +357,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             await cleanup_chat_messages(user_id, chat_id, context)
             enterprise_user_states.pop(user_id, None)
             text, markup = enterprise_render_dashboard_menu(user_id)
-            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup, parse_mode="Markdown")
             enterprise_chat_message_ids[user_id].append(msg.message_id)
             return
 
@@ -371,12 +429,12 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         enterprise_chat_message_ids[user_id].append(ai_msg.message_id)
         return
 
-    # --- TRƯỜNG HỢP 2: ĐANG NHẬP THU HOẶC CHI ---
-    if state in ["WAITING_INCOME_INPUT", "WAITING_EXPENSE_INPUT"]:
+    # --- CHẾ ĐỘ NHẬP SỐ TIỀN THU / CHI / MỤC TIÊU ---
+    if state in ["WAITING_INCOME_INPUT", "WAITING_EXPENSE_INPUT", "WAITING_TARGET_INPUT"]:
         try:
             val = enterprise_parse_amount(raw_text)
         except ValueError:
-            await update.message.reply_text("❌ Định dạng số tiền chưa đúng! Ví dụ nhập: 50k, 2tr, 1.5m")
+            await update.message.reply_text("❌ Định dạng số tiền chưa đúng! Ví dụ nhập: 50k, 2tr, 1.5m, 1 tỷ")
             return
 
         time_str = datetime.now().strftime("%H:%M")
@@ -385,19 +443,22 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             enterprise_user_registry[user_id]["yearly_income"] += val
             enterprise_user_registry[user_id]["transaction_history"].append({"time": time_str, "type": "Thu", "amount": val})
             await update.message.reply_text(f"✅ Đã ghi nhận THU: +{val:,.0f} đ")
-        else:
+        elif state == "WAITING_EXPENSE_INPUT":
             enterprise_user_registry[user_id]["daily_expense"] += val
             enterprise_user_registry[user_id]["yearly_expense"] += val
             enterprise_user_registry[user_id]["transaction_history"].append({"time": time_str, "type": "Chi", "amount": val})
             await update.message.reply_text(f"✅ Đã ghi nhận CHI: -{val:,.0f} đ")
+        elif state == "WAITING_TARGET_INPUT":
+            enterprise_user_registry[user_id]["target_amount"] = val
+            await update.message.reply_text(f"🎯 Đã cập nhật MỤC TIÊU MỚI: {val:,.0f} đ")
 
         enterprise_user_states.pop(user_id, None)
         text, markup = enterprise_render_dashboard_menu(user_id)
-        msg = await update.message.reply_text(text, reply_markup=markup)
+        msg = await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
         enterprise_chat_message_ids[user_id].append(msg.message_id)
         return
 
-    # --- TRƯỜNG HỢP 3: NHẮN LINH TINH NGOÀI MENU (XÓA CHAT RÁC VÀ HIỆN MENU MỚI) ---
+    # --- NHẮN LINH TINH TỰ XÓA TIN NHẮN RÁC & LÀM MỚI MENU ---
     try:
         await update.message.delete()
     except Exception:
@@ -406,7 +467,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
     await cleanup_chat_messages(user_id, chat_id, context)
 
     text, markup = enterprise_render_dashboard_menu(user_id)
-    new_menu = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+    new_menu = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup, parse_mode="Markdown")
     enterprise_chat_message_ids[user_id].append(new_menu.message_id)
 
 
@@ -430,13 +491,19 @@ def main() -> None:
         logger.error("LỖI: Vui lòng cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables của Render!")
         return
 
-    # Kích hoạt Keep-Alive Server Flask
     keep_alive()
     logger.info("🌐 Web Server Flask Keep-Alive đã chạy!")
 
-    # Khởi chạy Telegram Bot
     logger.info("🚀 Đang khởi chạy Telegram Bot...")
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Đặt lịch báo cáo tự động 00:00 hàng ngày theo giờ Việt Nam
+    if application.job_queue:
+        vietnam_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+        target_time = time(hour=0, minute=0, second=0, tzinfo=vietnam_tz)
+        application.job_queue.run_daily(daily_report_job, time=target_time)
+        logger.info("⏰ Đã thiết lập lịch gửi Báo cáo tự động vào lúc 00:00 mỗi ngày!")
+
     application.add_handler(CommandHandler("start", enterprise_command_start_handler))
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
