@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.0 (FULL CLEANUP - FIXED ALL GEMINI CALLS)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.1 (DETAILED ERROR LOGGING & FIXED GEMINI CALLS)
 # ====================================================================================================
 
 import os
@@ -61,7 +61,7 @@ if GEMINI_API_KEY:
 else:
     logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
 
-# DANH SÁCH MÔ HÌNH STANDARD GEMINI (TUYỆT ĐỐI KHÔNG CÓ GEMINI-2.5-FLASH)
+# DANH SÁCH MÔ HÌNH STABLE GEMINI
 STABLE_GEMINI_MODELS = [
     "gemini-1.5-flash",
     "gemini-1.5-pro",
@@ -93,12 +93,13 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TẠO CÂU TRẢ LỜI AN TOÀN QUA MÔ HÌNH STABLE
+# 4. HÀM TẠO CÂU TRẢ LỜI AN TOÀN QUA MÔ HÌNH STABLE (CÓ HIỂN THỊ LỖI CHI TIẾT)
 # ----------------------------------------------------------------------------------------------------
 def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị thiếu trên Render!"
 
+    last_error = ""
     for model_name in STABLE_GEMINI_MODELS:
         try:
             logger.info(f"Đang gửi yêu cầu tới Gemini Model: {model_name}")
@@ -110,10 +111,11 @@ def generate_gemini_response(prompt: str, system_instruction: str = None) -> str
             if res and res.text:
                 return res.text
         except Exception as e:
-            logger.warning(f"Model {model_name} không khả dụng ({e}), đang thử model tiếp theo...")
+            last_error = str(e)
+            logger.warning(f"Lỗi với model {model_name}: {e}")
             continue
 
-    return "❌ Tất cả các mô hình Gemini hiện tại đều không phản hồi. Vui lòng kiểm tra lại API Key!"
+    return f"❌ Lỗi kết nối Gemini API: {last_error}"
 
 
 # ----------------------------------------------------------------------------------------------------
