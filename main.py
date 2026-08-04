@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.5 (GEMINI 2.0 REST API + AUTO FALLBACK)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.6 (FINAL STABLE VERSION)
 # ====================================================================================================
 
 import os
@@ -519,7 +519,8 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(enterprise_callback_router))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), enterprise_incoming_message_dispatcher))
 
-    application.run_polling()
+    # Khởi chạy polling chuẩn xác cho python-telegram-bot v20+
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
