@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0 (GEMINI & RENDER READY)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.0 (GEMINI & AUTO-CLEANUP CHAT)
 # ====================================================================================================
 
 import os
@@ -23,7 +23,7 @@ from google.genai import types
 from duckduckgo_search import DDGS
 
 # ----------------------------------------------------------------------------------------------------
-# 1. CẤU HÌNH MÔI TRƯỜNG & LOGGING (AN TOÀN CHO RENDER)
+# 1. CẤU HÌNH MÔI TRƯỜNG & LOGGING
 # ----------------------------------------------------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -41,7 +41,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EnterpriseProductionCore")
 
-# Khởi tạo Gemini Client từ SDK chính thức
 try:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 except Exception as e:
@@ -52,10 +51,9 @@ GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-lite"]
 
 
 # ----------------------------------------------------------------------------------------------------
-# 2. HỆ THỐNG TÌM KIẾM INTERNET THÔNG MINH
+# 2. TRA CỨU WEB
 # ----------------------------------------------------------------------------------------------------
 def enterprise_search_web(query: str, max_results: int = 3) -> str:
-    """Hàm tra cứu thông tin thực tế từ Internet."""
     try:
         logger.info(f"Đang thực hiện tra cứu web cho từ khóa: {query}")
         with DDGS() as ddgs:
@@ -75,10 +73,12 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 3. QUẢN LÝ DỮ LIỆU NGƯỜI DÙNG (IN-MEMORY DATABASE)
+# 3. QUẢN LÝ DỮ LIỆU & BỘ NHỚ THEO DÕI TIN NHẮN
 # ----------------------------------------------------------------------------------------------------
 enterprise_user_registry: Dict[int, Dict[str, Any]] = {}
 enterprise_user_states: Dict[int, str] = {}
+# Lưu danh sách ID các tin nhắn trong chế độ AI Chat để dọn dẹp khi "đóng chat"
+enterprise_chat_message_ids: Dict[int, List[int]] = {}
 
 
 def enterprise_bootstrap_user(user_id: int) -> None:
@@ -94,10 +94,12 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "transaction_history": [],
             "budget_limit": 15000000.0,
         }
+    if user_id not in enterprise_chat_message_ids:
+        enterprise_chat_message_ids[user_id] = []
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. GIAO DIỆN BẢNG ĐIỀU KHIỂN (MENU TỐI ƯU)
+# 4. GIAO DIỆN BẢNG ĐIỀU KHIỂN
 # ----------------------------------------------------------------------------------------------------
 def enterprise_calculate_financial_health(user_id: int) -> Dict[str, Any]:
     enterprise_bootstrap_user(user_id)
@@ -155,7 +157,21 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
 
 
 # ----------------------------------------------------------------------------------------------------
-# 5. XỬ LÝ SỰ KIỆN CALLBACK MENU TELEGRAM
+# 5. HÀM DỌN DẸP TIN NHẮN TỰ ĐỘNG
+# ----------------------------------------------------------------------------------------------------
+async def cleanup_chat_messages(user_id: int, chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hàm dọn dẹp sạch toàn bộ tin nhắn trò chuyện nãy giờ."""
+    if user_id in enterprise_chat_message_ids:
+        for msg_id in enterprise_chat_message_ids[user_id]:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception:
+                pass
+        enterprise_chat_message_ids[user_id] = []
+
+
+# ----------------------------------------------------------------------------------------------------
+# 6. XỬ LÝ SỰ KIỆN CALLBACK MENU TELEGRAM
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_command_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -168,6 +184,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    chat_id = query.message.chat_id
     data = query.data
 
     enterprise_bootstrap_user(user_id)
@@ -184,8 +201,21 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
     elif data == "ent_chat_ai_mode":
         enterprise_user_states[user_id] = "ENTERPRISE_AI_CHAT"
+        enterprise_chat_message_ids[user_id] = []  # Reset danh sách theo dõi tin nhắn
+        
+        # Xóa tin nhắn menu cũ trước khi mở giao diện chat
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
-        await query.message.edit_text("🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nHãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", reply_markup=InlineKeyboardMarkup(kb))
+        init_msg = await context.bot.send_message(
+            chat_id=chat_id, 
+            text="🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nHãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", 
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+        enterprise_chat_message_ids[user_id].append(init_msg.message_id)
 
     elif data == "ent_view_history":
         hist = enterprise_user_registry[user_id]["transaction_history"][-5:]
@@ -193,7 +223,6 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         
         kb = []
         if hist:
-            # Cho phép xóa giao dịch nhập sai gần nhất
             kb.append([InlineKeyboardButton("🔄 XÓA GIAO DỊCH GẦN NHẤT", callback_data="ent_undo_last_tx")])
         kb.append([InlineKeyboardButton("🔙 Quay lại Menu", callback_data="ent_back_home")])
         
@@ -225,16 +254,23 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         await query.message.edit_text(f"📈 Báo cáo tổng quan năm:\n\n🟢 Tổng Thu: {inc:,.0f} đ\n🔴 Tổng Chi: {exp:,.0f} đ", reply_markup=InlineKeyboardMarkup(kb))
 
     elif data == "ent_back_home":
+        # Dọn dẹp tất cả tin nhắn chat trước khi quay về menu
+        await cleanup_chat_messages(user_id, chat_id, context)
         enterprise_user_states.pop(user_id, None)
+        
         text, markup = enterprise_render_dashboard_menu(user_id)
-        await query.message.edit_text(text, reply_markup=markup)
+        try:
+            await query.message.edit_text(text, reply_markup=markup)
+        except Exception:
+            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
 
 # ----------------------------------------------------------------------------------------------------
-# 6. XỬ LÝ TIN NHẮN VĂN BẢN (THU/CHI & GEMINI AI CHAT CHỐNG ẢO GIÁC)
+# 7. XỬ LÝ TIN NHẮN (TỰ ĐỘNG XÓA KHI NÓI "ĐÓNG CHAT")
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     raw_text = update.message.text.strip()
     enterprise_bootstrap_user(user_id)
 
@@ -242,15 +278,22 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
 
     # 1. Chế độ AI Chat
     if state == "ENTERPRISE_AI_CHAT":
+        # Lưu lại ID tin nhắn người dùng vừa nhắn
+        enterprise_chat_message_ids[user_id].append(update.message.message_id)
+
         exit_keywords = ["đóng chat", "thoát ai", "về menu", "thôi", "bye", "đóng", "thoát", "menu"]
         if any(cmd in raw_text.lower() for cmd in exit_keywords):
+            # Xóa TOÀN BỘ các tin nhắn đã trò chuyện nãy giờ
+            await cleanup_chat_messages(user_id, chat_id, context)
+            
             enterprise_user_states.pop(user_id, None)
             text, markup = enterprise_render_dashboard_menu(user_id)
-            await update.message.reply_text("🐷 Đã thoát chế độ AI. Trở về bảng điều khiển:", reply_markup=markup)
+            await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
             return
 
         thinking = await update.message.reply_text("🐷 Heo Đất AI Pro đang xử lý...")
-        
+        enterprise_chat_message_ids[user_id].append(thinking.message_id)
+
         need_search = False
         search_query = raw_text
         
@@ -281,7 +324,6 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         else:
             prompt_with_context = raw_text
 
-        # System Instruction siết chặt quy tắc để CHỐNG BỊA THÔNG TIN (Hallucination)
         system_instruction = (
             "Bạn là trợ lý Heo Đất AI Pro thông minh và trung thực. "
             "QUY TẮC BẮT BUỘC:\n"
@@ -299,7 +341,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                         contents=prompt_with_context,
                         config=types.GenerateContentConfig(
                             system_instruction=system_instruction,
-                            temperature=0.2  # Giảm chỉ số sáng tạo để AI trả lời chính xác
+                            temperature=0.2
                         )
                     )
                     reply_content = res.text
@@ -307,8 +349,15 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
                 except Exception as e:
                     logger.error(f"Gemini API Error ({model_name}): {e}")
 
-        await thinking.delete()
-        await update.message.reply_text(f"🐷 Heo Đất AI Pro:\n\n{reply_content}")
+        # Xóa tin nhắn "đang xử lý..." và lưu ID tin nhắn câu trả lời mới
+        try:
+            await thinking.delete()
+            enterprise_chat_message_ids[user_id].remove(thinking.message_id)
+        except Exception:
+            pass
+
+        ai_msg = await update.message.reply_text(f"🐷 Heo Đất AI Pro:\n\n{reply_content}")
+        enterprise_chat_message_ids[user_id].append(ai_msg.message_id)
         return
 
     # 2. Xử lý nhập Thu / Chi
@@ -354,14 +403,14 @@ def enterprise_parse_amount(text: str) -> float:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. KHỞI CHẠY ỨNG DỤNG
+# 8. KHỞI CHẠY BOT
 # ----------------------------------------------------------------------------------------------------
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         logger.error("LỖI: Vui lòng cài đặt TELEGRAM_BOT_TOKEN trong Environment Variables của Render!")
         return
 
-    logger.info("🚀 Đang khởi chạy Heo Đất AI Pro (Render Ready)...")
+    logger.info("🚀 Đang khởi chạy Heo Đất AI Pro (Clean Chat Enabled)...")
     keep_alive()
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
