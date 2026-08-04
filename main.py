@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.1 (DETAILED ERROR LOGGING & FIXED GEMINI CALLS)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.2 (FIXED GEMINI 1.5 FLASH LATEST MODEL)
 # ====================================================================================================
 
 import os
@@ -61,13 +61,8 @@ if GEMINI_API_KEY:
 else:
     logger.warning("⚠️ Chưa tìm thấy GEMINI_API_KEY trong Environment Variables!")
 
-# DANH SÁCH MÔ HÌNH STABLE GEMINI
-STABLE_GEMINI_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0-flash",
-    "gemini-1.0-pro"
-]
+# MODEL CHUẨN ĐƯỢC SUPPORT TRÊN V1BETA GOOGLE API
+PRIMARY_MODEL_NAME = "gemini-1.5-flash"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -93,16 +88,19 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TẠO CÂU TRẢ LỜI AN TOÀN QUA MÔ HÌNH STABLE (CÓ HIỂN THỊ LỖI CHI TIẾT)
+# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI CHUẨN
 # ----------------------------------------------------------------------------------------------------
 def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị thiếu trên Render!"
 
+    # Thử danh sách các model chuẩn nhất hiện nay
+    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
     last_error = ""
-    for model_name in STABLE_GEMINI_MODELS:
+
+    for model_name in candidate_models:
         try:
-            logger.info(f"Đang gửi yêu cầu tới Gemini Model: {model_name}")
+            logger.info(f"Đang gọi Gemini Model: {model_name}")
             model = genai.GenerativeModel(
                 model_name=model_name,
                 system_instruction=system_instruction
@@ -112,7 +110,7 @@ def generate_gemini_response(prompt: str, system_instruction: str = None) -> str
                 return res.text
         except Exception as e:
             last_error = str(e)
-            logger.warning(f"Lỗi với model {model_name}: {e}")
+            logger.warning(f"Thử model {model_name} thất bại: {e}")
             continue
 
     return f"❌ Lỗi kết nối Gemini API: {last_error}"
@@ -391,13 +389,10 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         need_search = False
         search_query = raw_text
 
-        # Phân loại ý định thông qua hàm generate_gemini_response an toàn
-        intent_prompt = f"Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, bài hát, thời tiết, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'. Tin nhắn: {raw_text}"
-        intent_res = generate_gemini_response(intent_prompt)
-        
-        if intent_res and intent_res.strip().startswith("SEARCH:"):
+        # Phân loại ý định đơn giản qua từ khóa trước khi gọi AI để tối ưu tốc độ
+        search_triggers = ["tìm", "tra", "search", "xem", "là gì", "ai là", "thời tiết", "mấy giờ", "bài hát", "tin tức", "giá"]
+        if any(trig in raw_text.lower() for trig in search_triggers):
             need_search = True
-            search_query = intent_res.strip().replace("SEARCH:", "").strip()
 
         # Tra cứu Web nếu cần
         search_data = enterprise_search_web(search_query) if need_search else ""
