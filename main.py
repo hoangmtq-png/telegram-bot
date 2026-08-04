@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.5 (FLASK + TELEGRAM + GEMINI + GOALS + DAILY REPORT)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 3.6 (FIXED GEMINI MODEL 1.5)
 # ====================================================================================================
 
 import os
@@ -62,7 +62,8 @@ except Exception as e:
     logger.error(f"Khởi tạo Gemini Client thất bại: {e}")
     gemini_client = None
 
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-lite"]
+# CẬP NHẬT TÊN MODEL CHUẨN TỪ GOOGLE
+GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro"]
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -107,7 +108,7 @@ def enterprise_bootstrap_user(user_id: int) -> None:
             "saved_days": 1,
             "transaction_history": [],
             "budget_limit": 15000000.0,
-            "target_amount": 50000000.0,  # Mặc định mục tiêu tiết kiệm: 50 triệu
+            "target_amount": 50000000.0,
         }
     if user_id not in enterprise_chat_message_ids:
         enterprise_chat_message_ids[user_id] = []
@@ -143,10 +144,7 @@ def enterprise_render_dashboard_menu(user_id: int) -> Tuple[str, InlineKeyboardM
     budget_limit = user_data["budget_limit"]
     target_amount = user_data.get("target_amount", 50000000.0)
     
-    # Tính tích lũy hiện tại (Thu tích lũy - Chi tích lũy)
     total_saved = max(0.0, user_data["yearly_income"] - user_data["yearly_expense"])
-    
-    # Tính % tiến độ tích lũy mục tiêu
     goal_percentage = min(100.0, (total_saved / target_amount * 100)) if target_amount > 0 else 0.0
     goal_bar_blocks = int(goal_percentage // 10)
     goal_progress_bar = "🟦" * goal_bar_blocks + "⬜️" * (10 - goal_bar_blocks)
@@ -218,7 +216,6 @@ async def daily_report_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             await context.bot.send_message(chat_id=user_id, text=report_msg, parse_mode="Markdown")
             
-            # Reset số liệu trong ngày
             data["daily_income"] = 0.0
             data["daily_expense"] = 0.0
             data["saved_days"] += 1
@@ -338,7 +335,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
 
 
 # ----------------------------------------------------------------------------------------------------
-# 7. XỬ LÝ TIN NHẮN (NHẬP SỐ TIỀN / CHAT AI / TỰ DỌN MENU CŨ)
+# 7. XỬ LÝ TIN NHẮN (SỬA LẠI TÊN MODEL GEMINI CHUẨN GOOGLE)
 # ----------------------------------------------------------------------------------------------------
 async def enterprise_incoming_message_dispatcher(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -370,7 +367,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
         if gemini_client:
             try:
                 intent_res = gemini_client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-1.5-flash",  # <--- Đã sửa chuẩn Gemini 1.5
                     contents=raw_text,
                     config=types.GenerateContentConfig(
                         system_instruction="Nếu tin nhắn yêu cầu tra cứu thông tin thực tế, tin tức, nghệ sĩ, bài hát, giá cả, hãy trả về 'SEARCH: <từ khóa>'. Ngược lại trả về 'CHAT'.",
@@ -402,7 +399,7 @@ async def enterprise_incoming_message_dispatcher(update: Update, context: Contex
             "3. Xưng hô lịch sự, thân thiện (dùng 'tôi' hoặc 'Heo Đất')."
         )
 
-        reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY trên Render!"
+        reply_content = "⚠️ Chưa cấu hình GEMINI_API_KEY hoặc Key bị lỗi!"
         if gemini_client:
             for model_name in GEMINI_MODELS:
                 try:
@@ -497,7 +494,6 @@ def main() -> None:
     logger.info("🚀 Đang khởi chạy Telegram Bot...")
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Đặt lịch báo cáo tự động 00:00 hàng ngày theo giờ Việt Nam
     if application.job_queue:
         vietnam_tz = ZoneInfo("Asia/Ho_Chi_Minh")
         target_time = time(hour=0, minute=0, second=0, tzinfo=vietnam_tz)
