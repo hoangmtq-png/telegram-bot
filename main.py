@@ -1,5 +1,5 @@
 # ====================================================================================================
-# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.4 (DIRECT REST API WITH AUTO FALLBACK)
+# HEO ĐẤT AI PRO - ENTERPRISE CORE 4.5 (GEMINI 2.0 REST API + AUTO FALLBACK)
 # ====================================================================================================
 
 import os
@@ -79,18 +79,15 @@ def enterprise_search_web(query: str, max_results: int = 3) -> str:
 
 
 # ----------------------------------------------------------------------------------------------------
-# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI (REST API + CƠ CHẾ AUTO FALLBACK CHỐNG LỖI 404)
+# 4. HÀM TẠO CÂU TRẢ LỜI GEMINI (REST API GEMINI 2.0 CHUẨN XÁC)
 # ----------------------------------------------------------------------------------------------------
 def generate_gemini_response(prompt: str, system_instruction: str = None) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Chưa cấu hình GEMINI_API_KEY trên Render!"
 
-    # Danh sách ưu tiên thử nghiệm các API Endpoint & Model mới nhất
     endpoints = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
         f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}",
     ]
 
     payload = {
@@ -326,7 +323,7 @@ async def enterprise_callback_router(update: Update, context: ContextTypes.DEFAU
         kb = [[InlineKeyboardButton("🔙 [ THOÁT AI & VỀ MENU ]", callback_data="ent_back_home")]]
         init_msg = await context.bot.send_message(
             chat_id=chat_id, 
-            text="🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nH Hãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", 
+            text="🐷🤖 Đã kích hoạt chế độ Heo Đất AI Pro.\nHãy gửi nội dung bạn muốn trò chuyện hoặc tra cứu!", 
             reply_markup=InlineKeyboardMarkup(kb)
         )
         enterprise_chat_message_ids[user_id].append(init_msg.message_id)
