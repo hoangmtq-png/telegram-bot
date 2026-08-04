@@ -1,5 +1,5 @@
-flask
-python-telegram-bot[job-queue]
-google-generativeai
-duckduckgo_search
-tzdata
+flask==3.0.2
+python-telegram-bot[job-queue]==20.8
+requests==2.31.0
+duckduckgo-search==5.3.0
+tzdata==2024.1
