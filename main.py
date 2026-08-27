@@ -5,37 +5,28 @@ from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters
 
-# 1. KHỞI TẠO FLASK WEB SERVER (Phục vụ Health Check cho Render)
+# 1. TẠO FLASK WEB SERVER ĐỂ RENDER HEALTH CHECK
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Userbot Status: Running 24/7!"
+    return "Userbot is running 24/7!"
 
 def run_flask():
-    # Render bắt buộc lấy cổng từ biến môi trường PORT
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# 2. ĐỌC BIẾN MÔI TRƯỜNG VỚI KIỂM TRA BẢO VỆ
-try:
-    API_ID = int(os.environ.get("API_ID", "0"))
-    API_HASH = os.environ.get("API_HASH", "")
-    SESSION_STRING = os.environ.get("SESSION_STRING", "")
-except Exception as e:
-    print(f"❌ Lỗi định dạng Environment Variables: {e}")
-    sys.exit(1)
-
-if not API_ID or not API_HASH or not SESSION_STRING:
-    print("❌ LỖI: Thiếu API_ID, API_HASH hoặc SESSION_STRING trong Environment Variables!")
-    sys.exit(1)
-
+# 2. ĐỌC BIẾN MÔI TRƯỜNG
+API_ID = int(os.environ.get("API_ID", 0))
+API_HASH = os.environ.get("API_HASH", "")
+SESSION_STRING = os.environ.get("SESSION_STRING", "")
 TARGET_GROUP = "sendsmsvip"
+
 active_tasks = {}
 
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
-# Vòng lặp gửi tin nhắn tự động
+# Vòng lặp gửi tin nhắn tự động (2 phút/lần)
 async def auto_send_loop(client, chat_id, message_text):
     try:
         while True:
@@ -48,7 +39,7 @@ async def auto_send_loop(client, chat_id, message_text):
     except asyncio.CancelledError:
         pass
 
-# Lệnh kích hoạt gửi: .send <nội dung>
+# Lệnh bật gửi: .send <nội dung>
 @app.on_message(filters.me & filters.command("send", prefixes="."))
 async def start_sending(client, message):
     if len(message.command) < 2:
@@ -69,10 +60,10 @@ async def start_sending(client, message):
         f"📌 **Nội dung:** `{msg_to_send}`\n"
         f"⏱ **Tần suất:** 2 phút / lần\n"
         f"🎯 **Nhóm:** @{TARGET_GROUP}\n\n"
-        f"💡 **Dừng gửi:** `.stop {msg_to_send}` hoặc `.stop`"
+        f"💡 **Hủy gửi:** Gõ `.stop {msg_to_send}` hoặc `.stop` để dừng tất cả."
     )
 
-# Lệnh dừng gửi: .stop [nội dung]
+# Lệnh dừng: .stop [nội dung]
 @app.on_message(filters.me & filters.command("stop", prefixes="."))
 async def stop_sending(client, message):
     if not active_tasks:
@@ -93,16 +84,14 @@ async def stop_sending(client, message):
         active_tasks.clear()
         await message.edit_text("🛑 **Đã dừng toàn bộ tiến trình!**")
 
-# 3. CHẠY TIẾN TRÌNH CHÍNH
+# 3. HÀM CHẠY CHÍNH
 async def main():
-    # Bật Flask Server ở thread phụ
+    # Bật Flask Server ở luồng riêng
     Thread(target=run_flask, daemon=True).start()
     
     # Bật Pyrogram Userbot
     await app.start()
-    print("✅ Userbot & Flask Web Server đã sẵn sàng!")
-    
-    # Giữ event loop chạy liên tục
+    print("✅ Userbot và Web Server đã chạy thành công!")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
