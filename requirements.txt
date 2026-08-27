@@ -1,5 +1,4 @@
-flask==3.0.2
-python-telegram-bot[job-queue]>=21.0
-requests==2.31.0
-duckduckgo-search>=6.0.0
-tzdata>=2024.1
+pyrogram
+tgcrypto
+flask
+gunicorn
