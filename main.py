@@ -44,7 +44,7 @@ async def auto_send_loop(client, chat_id, message_text):
                 await client.send_message(chat_id, f"✅ Đã gửi: `{message_text}` vào nhóm @{TARGET_GROUP}")
             except Exception as e:
                 await client.send_message(chat_id, f"❌ Lỗi gửi `{message_text}`: {e}")
-            await asyncio.sleep(120)
+            await asyncio.sleep(60)
     except asyncio.CancelledError:
         pass
 
