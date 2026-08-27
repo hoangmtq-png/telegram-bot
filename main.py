@@ -5,7 +5,7 @@ from threading import Thread
 from flask import Flask
 from hydrogram import Client, filters
 
-# 1. KHỞI TẠO FLASK WEB SERVER (Phục vụ Health Check cho Render)
+# 1. KHỞI TẠO FLASK WEB SERVER (Giữ cho Render không bị sleep)
 web_app = Flask(__name__)
 
 @web_app.route('/')
