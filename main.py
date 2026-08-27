@@ -29,21 +29,47 @@ if not API_ID or not API_HASH or not SESSION_STRING:
     print("❌ LỖI: Thiếu API_ID, API_HASH hoặc SESSION_STRING trong Environment Variables!")
     sys.exit(1)
 
-TARGET_GROUP = "sendsmsvip"
+# Nhóm mục tiêu (bắt buộc có dấu @ ở đầu)
+TARGET_GROUP = "@sendsmsvip"
 active_tasks = {}
 
-# Khởi tạo Client sau khi đã cài đặt event loop
+# Khởi tạo Client
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
-# Vòng lặp gửi tin nhắn tự động (2 phút/lần)
+# Hàm phụ trợ xóa tin nhắn sau 30 giây
+async def delete_msg_after_30s(msg):
+    await asyncio.sleep(30)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+
+# Vòng lặp gửi tin nhắn tự động (1 phút/lần)
 async def auto_send_loop(client, chat_id, message_text):
+    # Tự động gia nhập nhóm trước để tránh lỗi chưa join chat
+    try:
+        await client.join_chat(TARGET_GROUP)
+    except Exception:
+        pass
+
     try:
         while True:
             try:
+                # Gửi tin vào nhóm mục tiêu
                 await client.send_message(TARGET_GROUP, message_text)
-                await client.send_message(chat_id, f"✅ Đã gửi: `{message_text}` vào nhóm @{TARGET_GROUP}")
+                
+                # Gửi báo cáo thành công vào ô chat
+                status_msg = await client.send_message(chat_id, f"✅ Đã gửi: `{message_text}` vào nhóm {TARGET_GROUP}")
+                
+                # Tự động xóa báo cáo thành công sau 30 giây
+                asyncio.create_task(delete_msg_after_30s(status_msg))
+
             except Exception as e:
-                await client.send_message(chat_id, f"❌ Lỗi gửi `{message_text}`: {e}")
+                # Nếu có lỗi (chặn chat, slowmode,...), gửi thông báo lỗi chi tiết
+                error_msg = await client.send_message(chat_id, f"❌ Lỗi gửi vào {TARGET_GROUP}: `{e}`")
+                asyncio.create_task(delete_msg_after_30s(error_msg))
+            
+            # Chờ 60 giây (1 phút) cho lần gửi tiếp theo
             await asyncio.sleep(60)
     except asyncio.CancelledError:
         pass
@@ -64,11 +90,12 @@ async def start_sending(client, message):
     task = asyncio.create_task(auto_send_loop(client, message.chat.id, msg_to_send))
     active_tasks[msg_to_send] = task
 
+    # Tin nhắn này GIỮ NGUYÊN trong chat (không xóa)
     await message.edit_text(
         f"🚀 **Đã bật tự động gửi!**\n\n"
         f"📌 **Nội dung:** `{msg_to_send}`\n"
-        f"⏱ **Tần suất:** 2 phút / lần\n"
-        f"🎯 **Nhóm:** @{TARGET_GROUP}\n\n"
+        f"⏱ **Tần suất:** 1 phút / lần\n"
+        f"🎯 **Nhóm:** {TARGET_GROUP}\n\n"
         f"💡 **Hủy gửi:** Gõ `.stop {msg_to_send}` hoặc `.stop` để dừng tất cả."
     )
 
