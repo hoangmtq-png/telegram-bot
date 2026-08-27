@@ -4,33 +4,29 @@ from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters
 
-# 1. KHỞI TẠO FLASK WEB SERVER (Dành cho Render Free Tier)
+# 1. KHỞI TẠO FLASK ĐỂ RENDER KIỂM TRA HEALTH CHECK (DUY TRÌ SỐNG)
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Userbot is running perfectly!"
+    return "Userbot đang hoạt động 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# 2. CẤU HÌNH TỪ BIẾN MÔI TRƯỜNG (ENVIRONMENT VARIABLES)
+# 2. KHỞI TẠO BOT VỚI EVENT LOOP SỬA LỖI PYTHON 3.14
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
-SESSION_STRING = os.environ.get("SESSION_STRING", "") # Chuỗi Session String thu được từ Pyrogram
+SESSION_STRING = os.environ.get("SESSION_STRING", "")
 TARGET_GROUP = "sendsmsvip"
 
-# Từ điển quản lý các tác vụ đang chạy theo nội dung: {msg_text: asyncio.Task}
 active_tasks = {}
 
-# Khởi tạo Client (Sử dụng session_string nếu chạy trên Cloud)
-if SESSION_STRING:
-    app = Client("my_account", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
-else:
-    app = Client("my_account", api_id=API_ID, api_hash=API_HASH)
+# Khai báo Client
+app = Client("my_account", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
 
-# Hàm chạy ngầm gửi tin nhắn mỗi 2 phút
+# Hàm gửi tin lặp lại
 async def auto_send_loop(client, chat_id, message_text):
     try:
         while True:
@@ -38,13 +34,12 @@ async def auto_send_loop(client, chat_id, message_text):
                 await client.send_message(TARGET_GROUP, message_text)
                 await client.send_message(chat_id, f"✅ Đã gửi: `{message_text}` vào nhóm @{TARGET_GROUP}")
             except Exception as e:
-                await client.send_message(chat_id, f"❌ Lỗi khi gửi `{message_text}`: {e}")
-            
-            await asyncio.sleep(120) # Chờ 2 phút
+                await client.send_message(chat_id, f"❌ Lỗi gửi `{message_text}`: {e}")
+            await asyncio.sleep(120)
     except asyncio.CancelledError:
         pass
 
-# Lệnh bật gửi: .send <nội dung>
+# Lệnh bật gửi tin
 @app.on_message(filters.me & filters.command("send", prefixes="."))
 async def start_sending(client, message):
     if len(message.command) < 2:
@@ -54,10 +49,9 @@ async def start_sending(client, message):
     msg_to_send = message.text.split(" ", 1)[1].strip()
 
     if msg_to_send in active_tasks:
-        await message.edit_text(f"⚠️ Nội dung `{msg_to_send}` đang trong tiến trình gửi rồi!")
+        await message.edit_text(f"⚠️ Nội dung `{msg_to_send}` đang chạy rồi!")
         return
 
-    # Tạo task chạy ngầm cho tin nhắn này
     task = asyncio.create_task(auto_send_loop(client, message.chat.id, msg_to_send))
     active_tasks[msg_to_send] = task
 
@@ -66,42 +60,40 @@ async def start_sending(client, message):
         f"📌 **Nội dung:** `{msg_to_send}`\n"
         f"⏱ **Tần suất:** 2 phút / lần\n"
         f"🎯 **Nhóm:** @{TARGET_GROUP}\n\n"
-        f"💡 **Cách hủy:**\n"
-        f"• Hủy tin nhắn này: `.stop {msg_to_send}`\n"
-        f"• Hủy tất cả: `.stop`"
+        f"💡 **Hủy gửi:** Gõ `.stop {msg_to_send}` hoặc `.stop` để hủy tất cả."
     )
 
-# Lệnh dừng: .stop [nội dung (không bắt buộc)]
+# Lệnh dừng gửi
 @app.on_message(filters.me & filters.command("stop", prefixes="."))
 async def stop_sending(client, message):
     if not active_tasks:
-        await message.edit_text("⚠️ Hiện tại không có tiến trình nào đang chạy.")
+        await message.edit_text("⚠️ Không có tiến trình nào đang chạy.")
         return
 
-    # Trường hợp truyền cụ thể nội dung cần hủy: .stop /supervip 0941807755
     if len(message.command) > 1:
         target_text = message.text.split(" ", 1)[1].strip()
-        
         if target_text in active_tasks:
             active_tasks[target_text].cancel()
             del active_tasks[target_text]
-            await message.edit_text(f"🛑 **Đã hủy gửi nội dung:** `{target_text}`")
+            await message.edit_text(f"🛑 **Đã hủy nội dung:** `{target_text}`")
         else:
-            await message.edit_text(f"⚠️ Không tìm thấy tiến trình nào đang gửi nội dung: `{target_text}`")
-    
-    # Trường hợp gõ duy nhất lệnh .stop -> Dừng tất cả
+            await message.edit_text(f"⚠️ Không tìm thấy tiến trình: `{target_text}`")
     else:
-        count = len(active_tasks)
         for task in active_tasks.values():
             task.cancel()
         active_tasks.clear()
-        await message.edit_text(f"🛑 **Đã dừng toàn bộ ({count}) tiến trình gửi tin nhắn!**")
+        await message.edit_text("🛑 **Đã dừng tất cả các tiến trình!**")
 
-if __name__ == "__main__":
-    # Chạy Web Server Flask trên luồng riêng
-    server_thread = Thread(target=run_flask)
-    server_thread.daemon = True
+# 3. HÀM CHẠY CHÍNH (SỬA LỖI RUNTIMEERROR EVENT LOOP)
+async def main():
+    # Bật server Flask ở luồng riêng
+    server_thread = Thread(target=run_flask, daemon=True)
     server_thread.start()
 
-    print("Userbot và Flask Server đang hoạt động...")
-    app.run()
+    # Bật Pyrogram Client
+    await app.start()
+    print("Userbot và Flask Server đã kết nối thành công!")
+    await asyncio.Event().wait() # Giữ tiến trình chạy ngầm vĩnh viễn
+
+if __name__ == "__main__":
+    asyncio.run(main())
