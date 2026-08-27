@@ -3,25 +3,29 @@ import sys
 import asyncio
 from threading import Thread
 from flask import Flask
-from pyrogram import Client, filters
+from hydrogram import Client, filters
 
-# 1. TẠO FLASK WEB SERVER ĐỂ RENDER HEALTH CHECK
+# 1. KHỞI TẠO FLASK WEB SERVER (Phục vụ Health Check cho Render)
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Userbot is running 24/7!"
+    return "Userbot Status: Running 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
 # 2. ĐỌC BIẾN MÔI TRƯỜNG
-API_ID = int(os.environ.get("API_ID", 0))
+API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
-TARGET_GROUP = "sendsmsvip"
 
+if not API_ID or not API_HASH or not SESSION_STRING:
+    print("❌ LỖI: Thiếu API_ID, API_HASH hoặc SESSION_STRING trong Environment Variables!")
+    sys.exit(1)
+
+TARGET_GROUP = "sendsmsvip"
 active_tasks = {}
 
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING)
@@ -84,14 +88,11 @@ async def stop_sending(client, message):
         active_tasks.clear()
         await message.edit_text("🛑 **Đã dừng toàn bộ tiến trình!**")
 
-# 3. HÀM CHẠY CHÍNH
+# 3. CHẠY TIẾN TRÌNH CHÍNH
 async def main():
-    # Bật Flask Server ở luồng riêng
     Thread(target=run_flask, daemon=True).start()
-    
-    # Bật Pyrogram Userbot
     await app.start()
-    print("✅ Userbot và Web Server đã chạy thành công!")
+    print("✅ Userbot & Flask Web Server đã sẵn sàng!")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
