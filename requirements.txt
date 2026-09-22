@@ -1,3 +1,4 @@
-hydrogram
-tgcrypto
-flask
+Flask
+python-telegram-bot
+yt-dlp
+httpx
