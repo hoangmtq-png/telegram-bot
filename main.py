@@ -9,7 +9,7 @@ from telegram.request import HTTPXRequest
 import yt_dlp
 
 # ---> THAY TOKEN CHUẨN ĐƯỢC CẤP BỞI @BotFather VÀO ĐÂY <---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = "8316401248:AAFMKO9D6VEWRHNGKbrTSwSFIGaqv7nI0Dg"
 
 app_flask = Flask(__name__)
 
@@ -51,10 +51,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     user_message = update.message
-     
+    
     is_fb = "facebook.com" in url or "fb.watch" in url or "fb.gg" in url
     is_tt = "tiktok.com" in url or "vt.tiktok.com" in url
-     
+    
     if not (is_fb or is_tt):
         await update.message.reply_text("⚠️ **Lưu ý:** Vui lòng gửi đường dẫn (link) video **Facebook** hoặc **TikTok** hợp lệ!")
         return
@@ -69,22 +69,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     user_links[user_id] = url
-     
+    
     checking_msg = await update.message.reply_text("⏳ **Đang kết nối tới máy chủ để lấy thông tin video...**")
-     
+    
     def check_info():
-        nonlocal url
-        # Lọc sạch tham số thừa để tránh lỗi chặn link từ TikTok
-        if "tiktok.com" in url:
-            url = url.split("?")[0]
-            
+        # Thêm cấu hình giả lập client cho TikTok để tránh lỗi bị chặn
         ydl_opts = {
             'quiet': True,
-            'extractor_args': {
-                'tiktok': {
-                    'webpage_client': ['android', 'web']
-                }
-            }
+            'extractor_args': {'tiktok': {'webpage_client': 'mobile'}}
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -93,33 +85,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         loop = asyncio.get_running_loop()
         video_title = await loop.run_in_executor(None, check_info)
-         
+        
         platform_name = "TikTok Không Logo" if is_tt else "Facebook"
-         
+        
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎬 Tải Video (Chất lượng cao)", callback_data="dl_video_best")],
             [InlineKeyboardButton("🎵 Tách lấy File Nhạc (.mp3)", callback_data="dl_audio_mp3")],
             [InlineKeyboardButton("❌ Hủy thao tác", callback_data="dl_cancel")]
         ])
-         
+        
         menu_text = (
             f"🎯 **ĐÃ PHÁT HIỆN LINK {platform_name.upper()}!**\n\n"
             f"📌 **Tiêu đề:** `{video_title}`\n\n"
             "👇 **Bạn muốn xử lý video này như thế nào?**"
         )
-         
+        
         await checking_msg.edit_text(menu_text, reply_markup=keyboard, parse_mode="Markdown")
-         
+        
     except Exception as e:
         await checking_msg.edit_text(f"❌ **Không thể đọc thông tin video:**\n`{str(e)}`", parse_mode="Markdown")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-     
+    
     user_id = query.from_user.id
     choice = query.data
-     
+    
     if choice == "dl_cancel":
         await query.edit_message_text("❌ **Đã hủy thao tác.** Gửi link mới bất cứ lúc nào bạn muốn nhé!", parse_mode="Markdown")
         return
@@ -127,33 +119,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_links:
         await query.message.reply_text("⚠️ **Phiên làm việc đã hết hạn. Vui lòng gửi lại link mới!**")
         return
-         
+        
     url = user_links[user_id]
-     
+    
     if choice == "dl_video_best":
         status_text = "⚙️ **Đang tải video về máy chủ (Hỗ trợ file tối đa 300MB)...**"
         ydl_opts = {
             'format': 'best[filesize<300M]/best',
-            'socket_timeout': 120,
             'outtmpl': f"downloads/{user_id}_%(id)s.%(ext)s",
-            'extractor_args': {
-                'tiktok': {
-                    'webpage_client': ['android', 'web']
-                }
-            }
+            'extractor_args': {'tiktok': {'webpage_client': 'mobile'}}
         }
         is_audio = False
     else: 
         status_text = "🎵 **Đang trích xuất và chuyển đổi file âm thanh (.mp3)...**"
         ydl_opts = {
             'format': 'bestaudio/best',
-            'socket_timeout': 120,
             'outtmpl': f"downloads/{user_id}_%(id)s.%(ext)s",
-            'extractor_args': {
-                'tiktok': {
-                    'webpage_client': ['android', 'web']
-                }
-            },
+            'extractor_args': {'tiktok': {'webpage_client': 'mobile'}},
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -167,11 +149,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         def process_media():
-            nonlocal url
-            # Lọc sạch tham số thừa khi tiến hành tải video/audio TikTok
-            if "tiktok.com" in url:
-                url = url.split("?")[0]
-                
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
@@ -212,7 +189,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if os.path.exists(file_path):
             os.remove(file_path)
-             
+            
     except Exception as e:
         await status_msg.edit_text(f"❌ **Lỗi xử lý file:**\n`{str(e)}`", parse_mode="Markdown")
 
@@ -223,8 +200,8 @@ def main():
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    custom_request = HTTPXRequest(connect_timeout=120.0, read_timeout=300.0)
-     
+    custom_request = HTTPXRequest(connect_timeout=60.0, read_timeout=120.0)
+    
     application = ApplicationBuilder().token(BOT_TOKEN).request(custom_request).build()
 
     application.add_handler(CommandHandler("start", start))
