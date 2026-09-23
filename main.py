@@ -16,7 +16,7 @@ app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    return "🤖 Bot Telegram Download Video đang hoạt động mượt mà trên Render!"
+    return "🤖 Bot Telegram Download Video đang hoạt động!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -39,16 +39,14 @@ def cleanup_downloads_folder():
                         pass
 
 def get_real_tiktok_url(url):
-    """Hàm giải mã link rút gọn vt.tiktok.com thành link chuẩn để tránh bị TikTok chặn"""
+    """Giải mã link rút gọn vt.tiktok.com"""
     if "tiktok.com" in url:
         try:
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
             }
-            # Gửi yêu cầu lấy lịch sử chuyển hướng (redirect) của link rút gọn
             response = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
-            real_url = response.url.split("?")[0] # Cắt bỏ các tham số thừa phía sau
-            return real_url
+            return response.url.split("?")[0]
         except Exception:
             pass
     return url.split("?")[0]
@@ -56,11 +54,10 @@ def get_real_tiktok_url(url):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "🤖 **TRỢ LÝ TẢI VIDEO & ÂM THANH ĐA NĂNG** 🚀\n\n"
-        "✨ *Các tính năng hỗ trợ:*\n"
         "• Tải video **Facebook / Reels** chất lượng cao.\n"
-        "• Tải video **TikTok không logo (No Watermark)**.\n"
+        "• Tải video **TikTok không logo**.\n"
         "• Tách file âm thanh **(.mp3)** từ video cực nhanh.\n\n"
-        "📥 **Hãy gửi ngay link video Facebook hoặc TikTok cho tôi nhé!**"
+        "📥 **Hãy gửi ngay link video cho tôi nhé!**"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -72,7 +69,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_tt = "tiktok.com" in url or "vt.tiktok.com" in url
      
     if not (is_fb or is_tt):
-        await update.message.reply_text("⚠️ **Lưu ý:** Vui lòng gửi đường dẫn (link) video **Facebook** hoặc **TikTok** hợp lệ!")
+        await update.message.reply_text("⚠️ Vui lòng gửi link video **Facebook** hoặc **TikTok** hợp lệ!")
         return
 
     async def delete_user_link():
@@ -86,18 +83,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_links[user_id] = url
      
-    checking_msg = await update.message.reply_text("⏳ **Đang kết nối tới máy chủ để lấy thông tin video...**")
+    checking_msg = await update.message.reply_text("⏳ **Đang kết nối tới máy chủ lấy thông tin video...**", parse_mode="Markdown")
      
     def check_info():
         nonlocal url
         if is_tt:
             url = get_real_tiktok_url(url)
             
+        # Sử dụng cấu hình client iOS/MWeb để né chống bot trên Cloud
         ydl_opts = {
             'quiet': True,
             'extractor_args': {
                 'tiktok': {
-                    'webpage_client': ['android', 'web']
+                    'webpage_client': ['ios', 'mweb']
                 }
             }
         }
@@ -136,38 +134,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = query.data
      
     if choice == "dl_cancel":
-        await query.edit_message_text("❌ **Đã hủy thao tác.** Gửi link mới bất cứ lúc nào bạn muốn nhé!", parse_mode="Markdown")
+        await query.edit_message_text("❌ Đã hủy thao tác.", parse_mode="Markdown")
         return
 
     if user_id not in user_links:
-        await query.message.reply_text("⚠️ **Phiên làm việc đã hết hạn. Vui lòng gửi lại link mới!**")
+        await query.message.reply_text("⚠️ Phiên làm việc đã hết hạn. Vui lòng gửi lại link mới!")
         return
          
     url = user_links[user_id]
     is_tt = "tiktok.com" in url or "vt.tiktok.com" in url
      
     if choice == "dl_video_best":
-        status_text = "⚙️ **Đang tải video về máy chủ (Hỗ trợ file tối đa 300MB)...**"
+        status_text = "⚙️ **Đang tải video về máy chủ...**"
         ydl_opts = {
             'format': 'best[filesize<300M]/best',
             'socket_timeout': 120,
             'outtmpl': f"downloads/{user_id}_%(id)s.%(ext)s",
             'extractor_args': {
                 'tiktok': {
-                    'webpage_client': ['android', 'web']
+                    'webpage_client': ['ios', 'mweb']
                 }
             }
         }
         is_audio = False
     else: 
-        status_text = "🎵 **Đang trích xuất và chuyển đổi file âm thanh (.mp3)...**"
+        status_text = "🎵 **Đang trích xuất file âm thanh (.mp3)...**"
         ydl_opts = {
             'format': 'bestaudio/best',
             'socket_timeout': 120,
             'outtmpl': f"downloads/{user_id}_%(id)s.%(ext)s",
             'extractor_args': {
                 'tiktok': {
-                    'webpage_client': ['android', 'web']
+                    'webpage_client': ['ios', 'mweb']
                 }
             },
             'postprocessors': [{
@@ -198,32 +196,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_running_loop()
         file_path, title = await loop.run_in_executor(None, process_media)
 
-        await status_msg.edit_text("📤 **Đang gửi file lên Telegram, vui lòng đợi trong giây lát...**", parse_mode="Markdown")
+        await status_msg.edit_text("📤 **Đang gửi file lên Telegram...**", parse_mode="Markdown")
 
         with open(file_path, 'rb') as media_file:
             if is_audio:
-                await context.bot.send_audio(
-                    chat_id=query.message.chat_id,
-                    audio=media_file,
-                    caption=f"🎵 **Tách nhạc thành công!**\n📌 `{title}`",
-                    parse_mode="Markdown"
-                )
+                await context.bot.send_audio(chat_id=query.message.chat_id, audio=media_file, caption=f"🎵 {title}", parse_mode="Markdown")
             else:
-                await context.bot.send_video(
-                    chat_id=query.message.chat_id,
-                    video=media_file,
-                    caption=f"✅ **Tải video thành công!**\n📌 `{title}`",
-                    supports_streaming=True,
-                    parse_mode="Markdown"
-                )
+                await context.bot.send_video(chat_id=query.message.chat_id, video=media_file, caption=f"✅ {title}", supports_streaming=True, parse_mode="Markdown")
 
         await status_msg.delete()
-
-        reset_menu_text = (
-            "✨ **Hoàn tất quá trình xử lý!**\n\n"
-            "📥 **Hãy gửi tiếp link video Facebook hoặc TikTok khác nếu bạn muốn tải tiếp nhé!**"
-        )
-        await context.bot.send_message(chat_id=query.message.chat_id, text=reset_menu_text, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=query.message.chat_id, text="✨ Hoàn tất! Hãy gửi link tiếp theo nếu bạn muốn.", parse_mode="Markdown")
 
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -232,21 +214,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"❌ **Lỗi xử lý file:**\n`{str(e)}`", parse_mode="Markdown")
 
 def main():
-    cleanup_thread = threading.Thread(target=cleanup_downloads_folder, daemon=True)
-    cleanup_thread.start()
-
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+    threading.Thread(target=cleanup_downloads_folder, daemon=True).start()
+    threading.Thread(target=run_flask, daemon=True).start()
 
     custom_request = HTTPXRequest(connect_timeout=120.0, read_timeout=300.0)
-     
     application = ApplicationBuilder().token(BOT_TOKEN).request(custom_request).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    print("🤖 Bot quản lý đa năng với cơ chế chống chặn TikTok đang chạy...")
+    print("🤖 Bot đã sẵn sàng...")
     application.run_polling()
 
 if __name__ == '__main__':
