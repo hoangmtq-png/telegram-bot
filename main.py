@@ -73,7 +73,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     checking_msg = await update.message.reply_text("⏳ **Đang kết nối tới máy chủ để lấy thông tin video...**")
      
     def check_info():
-        # Đã cập nhật lại chuẩn extractor_args cho TikTok
+        nonlocal url
+        # Lọc sạch tham số thừa để tránh lỗi chặn link từ TikTok
+        if "tiktok.com" in url:
+            url = url.split("?")[0]
+            
         ydl_opts = {
             'quiet': True,
             'extractor_args': {
@@ -127,9 +131,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = user_links[user_id]
      
     if choice == "dl_video_best":
-        status_text = "⚙️ **Đang tải video về máy chủ (Đã tăng thời gian chờ)...**"
+        status_text = "⚙️ **Đang tải video về máy chủ (Hỗ trợ file tối đa 300MB)...**"
         ydl_opts = {
-            'format': 'best[vcodec!=none][acodec!=none]/best',
+            'format': 'best[filesize<300M]/best',
             'socket_timeout': 120,
             'outtmpl': f"downloads/{user_id}_%(id)s.%(ext)s",
             'extractor_args': {
@@ -140,7 +144,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         is_audio = False
     else: 
-        status_text = "🎵 **Đang trích xuất file âm thanh...**"
+        status_text = "🎵 **Đang trích xuất và chuyển đổi file âm thanh (.mp3)...**"
         ydl_opts = {
             'format': 'bestaudio/best',
             'socket_timeout': 120,
@@ -163,6 +167,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         def process_media():
+            nonlocal url
+            # Lọc sạch tham số thừa khi tiến hành tải video/audio TikTok
+            if "tiktok.com" in url:
+                url = url.split("?")[0]
+                
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
@@ -222,7 +231,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    print("🤖 Bot đang chạy với thời gian chờ đã được mở rộng tối đa...")
+    print("🤖 Bot quản lý đa năng với cơ chế chống chặn TikTok đang chạy...")
     application.run_polling()
 
 if __name__ == '__main__':
