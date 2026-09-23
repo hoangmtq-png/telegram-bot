@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import asyncio
+import requests
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
@@ -36,6 +37,21 @@ def cleanup_downloads_folder():
                         os.remove(file_path)
                     except Exception:
                         pass
+
+def get_real_tiktok_url(url):
+    """Hàm giải mã link rút gọn vt.tiktok.com thành link chuẩn để tránh bị TikTok chặn"""
+    if "tiktok.com" in url:
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            # Gửi yêu cầu lấy lịch sử chuyển hướng (redirect) của link rút gọn
+            response = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+            real_url = response.url.split("?")[0] # Cắt bỏ các tham số thừa phía sau
+            return real_url
+        except Exception:
+            pass
+    return url.split("?")[0]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
@@ -74,9 +90,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
      
     def check_info():
         nonlocal url
-        # Lọc sạch tham số thừa trên TikTok để tránh lỗi bị chặn ở môi trường Cloud
-        if "tiktok.com" in url:
-            url = url.split("?")[0]
+        if is_tt:
+            url = get_real_tiktok_url(url)
             
         ydl_opts = {
             'quiet': True,
@@ -129,6 +144,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
          
     url = user_links[user_id]
+    is_tt = "tiktok.com" in url or "vt.tiktok.com" in url
      
     if choice == "dl_video_best":
         status_text = "⚙️ **Đang tải video về máy chủ (Hỗ trợ file tối đa 300MB)...**"
@@ -168,9 +184,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         def process_media():
             nonlocal url
-            # Lọc sạch tham số thừa khi tiến hành tải file thực tế
-            if "tiktok.com" in url:
-                url = url.split("?")[0]
+            if is_tt:
+                url = get_real_tiktok_url(url)
                 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
