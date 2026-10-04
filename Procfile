@@ -1,1 +1,1 @@
-web: python snaptikbottele.py
+web: gunicorn bot:app
