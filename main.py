@@ -96,7 +96,20 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
           ),
       }
 
-    # Sử dụng Cobalt API để tải video đa nền tảng (TikTok, FB Reels, Video FB...)
+    # Nếu là Facebook, sử dụng API chuyên trích xuất FB công khai ổn định cao
+    if platform_type == "facebook":
+      fb_api = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
+      res = requests.get(fb_api, timeout=15).json()
+      if res.get("code") == 0 and res.get("data", {}).get("play"):
+        data = res.get("data", {})
+        return {
+            "success": True,
+            "title": data.get("title", "Facebook Video / Reels"),
+            "video_url": data.get("play"),
+            "author": data.get("author", "Facebook User"),
+        }
+
+    # Sử dụng Cobalt API cho TikTok / Douyin hoặc làm phương án dự phòng
     api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json",
@@ -112,7 +125,6 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
     ).json()
 
     status = response.get("status")
-
     if status in ["stream", "redirect", "picker"]:
       video_link = response.get("url")
       if not video_link and response.get("picker"):
@@ -127,23 +139,12 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
         }
 
     return {
-        "success": {
-            "success": False,
-            "error": (
-                "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở"
-                " chế độ công khai!"
-            ),
-        }
-    }.get(
-        "success",
-        {
-            "success": False,
-            "error": (
-                "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở"
-                " chế độ công khai!"
-            ),
-        },
-    )
+        "success": False,
+        "error": (
+            "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở chế độ"
+            " công khai!"
+        ),
+    }
   except Exception as e:
     return {"success": False, "error": f"Lỗi kết nối hệ thống tải: {str(e)}"}
 
@@ -235,7 +236,7 @@ async def button_callback_handler(
     await start_command(update, context)
 
 
-# --- XỬ LÝ TIN NHẮN ĐỘC LẬP & KIỂM TRA NGẶT NGHÈO ---
+# --- XỬ LÝ TIN NHẮN ĐỘC LẬP & TỰ ĐỘNG XÓA SAU 30S ---
 async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
   message = update.message
   text_input = message.text.strip()
@@ -265,7 +266,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-  # KIỂM TRA NGẶT NGHÈO THEO TỪNG MỤC RIÊNG BIỆT
+  # Kiểm tra và xử lý theo từng chế độ độc lập
   if current_mode == "tiktok":
     if "tiktok.com" not in text_input and "douyin.com" not in text_input:
       err_msg = await message.reply_text(
@@ -401,10 +402,7 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print(
-      "🤖 Bot đang chạy hoàn hảo: Menu phân tách riêng, chặn link lệch, tự"
-      " xóa 30s!"
-  )
+  print("🤖 Bot đã sẵn sàng vận hành ổn định!")
   application.run_polling()
 
 
