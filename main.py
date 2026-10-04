@@ -35,7 +35,7 @@ async def schedule_message_deletion(context: ContextTypes.DEFAULT_TYPE):
   try:
     await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
   except Exception:
-    pass  # Bỏ qua nếu tin nhắn đã bị xóa từ trước
+    pass
 
 
 # --- CÁC TÍNH NĂNG CHUYÊN SÂU ---
@@ -74,7 +74,7 @@ def get_original_facebook_uid(url: str) -> str:
 
 def download_social_media_video(url: str, platform_type: str) -> dict:
   try:
-    # Nếu đang chọn chế độ TikTok/Douyin mà gửi link khác -> Chặn ngay từ hàm logic
+    # Kiểm tra ngặt nghèo đầu vào tránh lộn xộn
     if (
         platform_type == "tiktok"
         and "tiktok.com" not in url
@@ -91,27 +91,61 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
     ):
       return {
           "success": False,
-          "error": "⚠️ Vui lòng gửi link chính xác của Facebook Video!",
+          "error": (
+              "⚠️ Vui lòng gửi link chính xác của Facebook Video / Reels!"
+          ),
       }
 
-    api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
-    res = requests.get(api_url, timeout=10).json()
+    # Sử dụng Cobalt API để tải video đa nền tảng (TikTok, FB Reels, Video FB...)
+    api_url = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        ),
+    }
+    payload = {"url": url}
 
-    if res.get("code") == 0:
-      data = res.get("data", {})
-      return {
-          "success": True,
-          "title": data.get("title", "Video không tiêu đề"),
-          "video_url": data.get("play"),
-          "author": data.get("author", {}).get("nickname", "Chính chủ"),
-      }
+    response = requests.post(
+        api_url, json=payload, headers=headers, timeout=15
+    ).json()
+
+    status = response.get("status")
+
+    if status in ["stream", "redirect", "picker"]:
+      video_link = response.get("url")
+      if not video_link and response.get("picker"):
+        video_link = response["picker"][0].get("url")
+
+      if video_link:
+        return {
+            "success": True,
+            "title": response.get("filename", "Video mạng xã hội không logo"),
+            "video_url": video_link,
+            "author": "Mạng xã hội User",
+        }
 
     return {
-        "success": False,
-        "error": "Không thể trích xuất video. Hãy đảm bảo link ở chế độ công khai!",
-    }
+        "success": {
+            "success": False,
+            "error": (
+                "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở"
+                " chế độ công khai!"
+            ),
+        }
+    }.get(
+        "success",
+        {
+            "success": False,
+            "error": (
+                "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở"
+                " chế độ công khai!"
+            ),
+        },
+    )
   except Exception as e:
-    return {"success": False, "error": f"Lỗi kết nối: {str(e)}"}
+    return {"success": False, "error": f"Lỗi kết nối hệ thống tải: {str(e)}"}
 
 
 # --- MENU PHÂN TÁCH RIÊNG BIỆT ---
@@ -124,7 +158,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
       ],
       [
           InlineKeyboardButton(
-              "📥 Tải Video Facebook", callback_data="mode_fb_video"
+              "📥 Tải Video Facebook / Reels", callback_data="mode_fb_video"
           )
       ],
       [
@@ -143,10 +177,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
   )
 
   if update.message:
-    msg = await update.message.reply_text(
+    await update.message.reply_text(
         text, reply_markup=reply_markup, parse_mode="Markdown"
     )
-    # Lên lịch tự động xóa sau 30s (tùy chọn cho menu chính, hoặc giữ lại)
   elif update.callback_query:
     query = update.callback_query
     await query.answer()
@@ -169,16 +202,16 @@ async def button_callback_handler(
     context.user_data["current_mode"] = "tiktok"
     await query.edit_message_text(
         "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO TIKTOK / DOUYIN**\n\n- Gửi link"
-        " **TikTok** hoặc **Douyin** vào đây.\n- Nếu bạn gửi link sai (ví dụ"
-        " link FB), hệ thống sẽ từ chối xử lý.",
+        " **TikTok** hoặc **Douyin** vào đây.\n- Nếu gửi sai link, hệ thống"
+        " sẽ từ chối.",
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
   elif data == "mode_fb_video":
     context.user_data["current_mode"] = "fb_video"
     await query.edit_message_text(
-        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO FACEBOOK**\n\n- Gửi link **Facebook Video**"
-        " vào đây.\n- Các link khác sẽ bị từ chối.",
+        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO FACEBOOK / REELS**\n\n- Gửi link"
+        " **Facebook Video / Reels** vào đây.\n- Các link khác sẽ bị từ chối.",
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
@@ -186,7 +219,7 @@ async def button_callback_handler(
     context.user_data["current_mode"] = "fb_uid"
     await query.edit_message_text(
         "🔍 **ĐANG Ở CHẾ ĐỘ: LẤY UID FACEBOOK GỐC**\n\n- Gửi link bài viết hoặc"
-        " profile Facebook để lấy số UID chính xác.",
+        " profile Facebook để lấy số UID chuẩn.",
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
@@ -208,13 +241,11 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
   text_input = message.text.strip()
   current_mode = context.user_data.get("current_mode", None)
 
-  # Nếu chưa chọn chế độ từ menu
   if not current_mode:
     warning_msg = await message.reply_text(
         "⚠️ Vui lòng bấm lệnh /start hoặc chọn một tính năng cụ thể trong menu"
         " trước khi gửi link!"
     )
-    # Tự động xóa thông báo nhắc nhở này sau 30 giây
     context.job_queue.run_once(
         schedule_message_deletion,
         30,
@@ -258,7 +289,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
       pass
 
     if res.get("success"):
-      sent_vid = await message.reply_video(
+      await message.reply_video(
           video=res["video_url"],
           caption=(
               f"🎬 **Tiêu đề:** {res['title']}\n👤 **Tác giả:**"
@@ -266,7 +297,6 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
           ),
           parse_mode="Markdown",
       )
-      # Tự động xóa video/tin nhắn tải về sau 30 giây nếu muốn (hoặc giữ lại tùy ý bạn)
     else:
       err_msg = await message.reply_text(res.get("error"))
       context.job_queue.run_once(
@@ -279,7 +309,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "facebook.com" not in text_input and "fb.watch" not in text_input:
       err_msg = await message.reply_text(
           "❌ Bạn đang ở chế độ **Tải Video Facebook**!\n⚠️ Vui lòng gửi đúng"
-          " link Facebook Video."
+          " link Facebook Video hoặc Reels."
       )
       context.job_queue.run_once(
           schedule_message_deletion,
@@ -288,7 +318,9 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
       )
       return
 
-    wait_msg = await message.reply_text("⏳ Đang xử lý tải video Facebook...")
+    wait_msg = await message.reply_text(
+        "⏳ Đang xử lý tải video Facebook / Reels..."
+    )
     res = download_social_media_video(text_input, "facebook")
     try:
       await context.bot.delete_message(
@@ -301,7 +333,8 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
       await message.reply_video(
           video=res["video_url"],
           caption=(
-              f"🎬 **Facebook Video**\n👤 **Tác giả:** `{res['author']}`"
+              f"🎬 **Facebook Video / Reels**\n👤 **Tác giả:**"
+              f" `{res['author']}`"
           ),
           parse_mode="Markdown",
       )
@@ -338,7 +371,6 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_msg = await message.reply_text(
         f"🎯 **KẾT QUẢ UID GỐC:**\n`{uid_res}`", parse_mode="Markdown"
     )
-    # Xóa kết quả UID sau 30 giây để bảo mật / dọn sạch chat
     context.job_queue.run_once(
         schedule_message_deletion,
         30,
@@ -369,7 +401,10 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print("🤖 Bot đang chạy hoàn hảo với tính năng phân tách menu & tự xóa 30s...")
+  print(
+      "🤖 Bot đang chạy hoàn hảo: Menu phân tách riêng, chặn link lệch, tự"
+      " xóa 30s!"
+  )
   application.run_polling()
 
 
