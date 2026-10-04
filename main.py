@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import threading
 import requests
 from flask import Flask, request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -22,11 +23,8 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
-# Lấy URL của Render (Render tự cung cấp biến RENDER_EXTERNAL_URL)
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "")
-
+# Khởi tạo Flask App đáp ứng yêu cầu port của Render
 app = Flask(__name__)
-bot_application = None
 
 
 # --- CÁC TÍNH NĂNG NÂNG CAO ---
@@ -214,48 +212,37 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("💡 Vui lòng gửi một đường dẫn (URL) hợp lệ!")
 
 
-# --- FLASK WEBHOOK ROUTES ---
+# --- FLASK SERVER ROUTES (Giữ port render mở 24/7) ---
 @app.route("/")
 def index():
   return "🤖 Telegram Bot is running smoothly on Render 24/7!"
 
 
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-  if request.headers.get("content-type") == "application/json":
-    json_string = request.get_data().decode("utf-8")
-    update = Update.de_json(json_string, bot_application.bot)
-    bot_application.update_queue.put_nowait(update)
-    return "OK", 200
-  return "Invalid format", 403
-
-
-async def setup_webhook():
-  await bot_application.initialize()
-  if RENDER_URL:
-    webhook_url = f"{RENDER_URL}/{TOKEN}"
-    await bot_application.bot.set_webhook(url=webhook_url)
-    logger.info(f"Webhook set to: {webhook_url}")
-  await bot_application.start()
+def run_flask():
+  app.run(host="0.0.0.0", port=PORT)
 
 
 def main():
-  global bot_application
-  bot_application = Application.builder().token(TOKEN).build()
+  # Khởi chạy Flask ở một Thread riêng biệt để mở Port HTTP cho Render
+  flask_thread = threading.Thread(target=run_flask)
+  flask_thread.daemon = True
+  flask_thread.start()
+  logger.info(
+      f"🚀 Flask Web Server đã mở tại cổng {PORT} để đáp ứng yêu cầu của"
+      " Render."
+  )
 
-  bot_application.add_handler(CommandHandler("start", start_command))
-  bot_application.add_handler(CallbackQueryHandler(button_callback_handler))
-  bot_application.add_handler(
+  # Khởi tạo Telegram Bot chạy Polling trực tiếp ở luồng chính (Ổn định tuyệt đối)
+  application = Application.builder().token(TOKEN).build()
+
+  application.add_handler(CommandHandler("start", start_command))
+  application.add_handler(CallbackQueryHandler(button_callback_handler))
+  application.add_handler(
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  # Khởi tạo webhook bất đồng bộ
-  import asyncio
-
-  asyncio.run(setup_webhook())
-
-  # Chạy Flask app lắng nghe PORT của Render
-  app.run(host="0.0.0.0", port=PORT)
+  print("🤖 Telegram Bot đang chạy chế độ Polling mượt mà...")
+  application.run_polling()
 
 
 if __name__ == "__main__":
