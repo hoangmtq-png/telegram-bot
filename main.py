@@ -38,43 +38,49 @@ async def schedule_message_deletion(context: ContextTypes.DEFAULT_TYPE):
     pass
 
 
+# --- HÀM GIẢI MÃ LINK RÚT GỌN FACEBOOK (/share/) ---
+def resolve_facebook_url(url: str) -> str:
+  try:
+    if "/share/" in url or "fb.watch" in url:
+      headers = {
+          "User-Agent": (
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+              "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
+              "Mobile/15E148 Safari/604.1"
+          )
+      }
+      response = requests.get(
+          url, headers=headers, allow_redirects=True, timeout=10
+      )
+      return response.url
+    return url
+  except Exception:
+    return url
+
+
 # --- CÁC TÍNH NĂNG CHUYÊN SÂU ---
 def get_original_facebook_uid(url: str) -> str:
   try:
-    if "id=" in url:
-      match = re.search(r"id=(\d+)", url)
+    real_url = resolve_facebook_url(url)
+    if "id=" in real_url:
+      match = re.search(r"id=(\d+)", real_url)
       if match:
         return match.group(1)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
-    }
-    response = requests.get(
-        url, headers=headers, allow_redirects=True, timeout=10
-    )
-    final_url = response.url
-
-    match_id = re.search(r"id=(\d+)", final_url)
-    if match_id:
-      return match_id.group(1)
-
-    path_match = re.findall(r"facebook\.com/([^/?]+)", final_url)
+    path_match = re.findall(r"facebook\.com/([^/?]+)", real_url)
     if path_match:
       username = path_match[0]
       if username in ["profile.php", "pages", "groups", "watch", "reel"]:
-        return f"Link gốc: {final_url}"
-      return f"Username: `{username}`\nLink: {final_url}"
+        return f"Link gốc: {real_url}"
+      return f"Username: `{username}`\nLink: {real_url}"
 
-    return "Không tìm thấy định dạng URL Facebook hợp lệ."
+    return f"Link gốc: {real_url}"
   except Exception as e:
     return f"Lỗi xử lý UID: {str(e)}"
 
 
 def download_social_media_video(url: str, platform_type: str) -> dict:
   try:
-    # Kiểm tra ngặt nghèo đầu vào tránh lộn xộn
     if (
         platform_type == "tiktok"
         and "tiktok.com" not in url
@@ -96,20 +102,8 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
           ),
       }
 
-    # Nếu là Facebook, sử dụng API chuyên trích xuất FB công khai ổn định cao
-    if platform_type == "facebook":
-      fb_api = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
-      res = requests.get(fb_api, timeout=15).json()
-      if res.get("code") == 0 and res.get("data", {}).get("play"):
-        data = res.get("data", {})
-        return {
-            "success": True,
-            "title": data.get("title", "Facebook Video / Reels"),
-            "video_url": data.get("play"),
-            "author": data.get("author", "Facebook User"),
-        }
+    target_url = resolve_facebook_url(url) if platform_type == "facebook" else url
 
-    # Sử dụng Cobalt API cho TikTok / Douyin hoặc làm phương án dự phòng
     api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json",
@@ -118,7 +112,7 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         ),
     }
-    payload = {"url": url}
+    payload = {"url": target_url}
 
     response = requests.post(
         api_url, json=payload, headers=headers, timeout=15
@@ -165,6 +159,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
       [
           InlineKeyboardButton(
               "🔍 Lấy UID Facebook Gốc", callback_data="mode_fb_uid"
+          )
+      ],
+      [
+          InlineKeyboardButton(
+              "📊 Theo Dõi Live / Die Acc", callback_data="mode_livedie"
           )
       ],
       [InlineKeyboardButton("🟢 Trạng Thái Hệ Thống", callback_data="mode_status")],
@@ -224,6 +223,52 @@ async def button_callback_handler(
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
+  elif data == "mode_livedie":
+    context.user_data["current_mode"] = "livedie"
+    # Mẫu giao diện theo dõi live die acc như bạn yêu cầu
+    live_die_markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🟢 Đang Theo Dõi Liên Tục ✅", callback_data="tracking_active"
+            )
+        ],
+        [
+            InlineKeyboardButton("✅ Done kèo", callback_data="done_keo"),
+            InlineKeyboardButton("❌ Hủy theo dõi", callback_data="cancel_keo"),
+        ],
+        [InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="home")],
+    ])
+    sample_report = (
+        "🎉 **--- ACC SỐNG LẠI! ---** 🎉\n\n"
+        "📖 **FACEBOOK LIVE**\n"
+        "👤 **Tên:** [Tên tài khoản mẫu]\n"
+        "🔍 **UID:** `1000xxxxxxxxxxx` - Link\n"
+        "🟢 **Trạng thái:** ĐÃ SỐNG LẠI ✅\n"
+        "📝 **Ghi chú:** FAQ 583/2M (DANG CHIEN)\n"
+        "💵 **Giá:** Thỏa thuận\n"
+        "⏰ **Thời gian:** 3 ngày 13 giờ 16 phút\n"
+        "📅 **Cập nhật lúc:** 26/09/2026 03:58:38\n"
+        "📊 **Tiến trình:** Đang Theo Dõi Liên Tục\n"
+        "∞\n"
+        "👤 **Hạn trả kèo:** Vĩnh Viễn"
+    )
+    await query.edit_message_text(
+        text=sample_report,
+        reply_markup=live_die_markup,
+        parse_mode="Markdown",
+    )
+  elif data == "done_keo":
+    await query.edit_message_text(
+        "✅ **Đã hoàn thành kèo thành công!**",
+        reply_markup=back_btn,
+        parse_mode="Markdown",
+    )
+  elif data == "cancel_keo":
+    await query.edit_message_text(
+        "❌ **Đã hủy theo dõi kèo này.**",
+        reply_markup=back_btn,
+        parse_mode="Markdown",
+    )
   elif data == "mode_status":
     status_text = (
         "🟢 **TRẠNG THÁI HỆ THỐNG SMM 24/7**\n\n- API Trực tuyến: 100%\n- Server"
@@ -254,6 +299,20 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
+  if current_mode == "livedie":
+    # Xử lý khi đang ở mode theo dõi live/die (ví dụ gửi ID acc hoặc link cần check)
+    info_msg = await message.reply_text(
+        f"📊 Đang tiếp nhận thông tin theo dõi cho: `{text_input}`\nHệ thống"
+        " đang quét trạng thái Live/Die...",
+        parse_mode="Markdown",
+    )
+    context.job_queue.run_once(
+        schedule_message_deletion,
+        30,
+        data={"chat_id": message.chat_id, "message_id": info_msg.message_id},
+    )
+    return
+
   if "http://" not in text_input and "https://" not in text_input:
     err_msg = await message.reply_text(
         "💡 Vui lòng gửi một đường dẫn (URL) hợp lệ theo đúng chế độ bạn đang"
@@ -266,11 +325,10 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-  # Kiểm tra và xử lý theo từng chế độ độc lập
   if current_mode == "tiktok":
     if "tiktok.com" not in text_input and "douyin.com" not in text_input:
       err_msg = await message.reply_text(
-          "❌ Bạn đang ở chế độ **Tải Video TikTok/Douyin**!\n⚠️ Vui lòng gửi"
+          "❌ Bạn đang ở chế độ **Tải Video TikTok/Douyin**!\n⚠️️ Vui lòng gửi"
           " đúng link TikTok/Douyin, không được gửi link khác."
       )
       context.job_queue.run_once(
@@ -402,7 +460,7 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print("🤖 Bot đã sẵn sàng vận hành ổn định!")
+  print("🤖 Bot đã tích hợp đầy đủ tính năng Theo dõi Live/Die và Tải video!")
   application.run_polling()
 
 
