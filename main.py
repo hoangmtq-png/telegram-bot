@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import requests
+import yt_dlp
 from flask import Flask, request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -79,66 +80,36 @@ def get_original_facebook_uid(url: str) -> str:
     return f"Lỗi xử lý UID: {str(e)}"
 
 
-# --- HỆ THỐNG TẢI ĐA NĂNG (TẤT CẢ VIDEO & ẢNH KHÔNG GIỚI HẠN) ---
+# --- HỆ THỐNG TẢI ĐA NĂNG DÙNG YT-DLP (KHÔNG GIỚI HẠN) ---
 def download_universal_media(url: str) -> dict:
   try:
     target_url = resolve_short_url(url)
 
-    # 1. Thử dùng Cobalt API (Hỗ trợ hầu hết FB, Insta, TikTok, YouTube, Twitter...)
-    api_url = "https://api.cobalt.tools/api/json"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        ),
+    ydl_opts = {
+        "format": "best",
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
     }
-    payload = {"url": target_url}
 
-    response = requests.post(
-        api_url, json=payload, headers=headers, timeout=15
-    ).json()
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+      info = ydl.extract_info(target_url, download=False)
 
-    status = response.get("status")
-    if status in ["stream", "redirect", "picker"]:
-      media_link = response.get("url")
-      # Nếu là dạng album ảnh hoặc nhiều file (picker)
-      picker_items = response.get("picker")
-      if not media_link and picker_items:
-        media_link = picker_items[0].get("url")
+      if "entries" in info:
+        info = info["entries"][0]
 
-      if media_link:
+      media_url = info.get("url")
+      title = info.get("title", "Phương tiện tải xuống")
+
+      if media_url:
         is_photo = any(
-            ext in media_link.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"]
+            ext in media_url.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"]
         )
         return {
             "success": True,
             "type": "photo" if is_photo else "video",
-            "media_url": media_link,
-            "title": response.get("filename", "Đ phương tiện tải xuống"),
-        }
-
-    # 2. Dự phòng bằng TikWM API nếu là TikTok/Douyin hoặc link phụ
-    fallback_api = f"https://www.tikwm.com/api/?url={requests.utils.quote(target_url)}"
-    res = requests.get(fallback_api, timeout=10).json()
-    if res.get("code") == 0:
-      data = res.get("data", {})
-      # Kiểm tra xem là video hay danh sách ảnh
-      images = data.get("images")
-      if images:
-        return {
-            "success": True,
-            "type": "album",
-            "media_url": images[0],  # Lấy ảnh đầu tiên hoặc xử lý danh sách
-            "title": data.get("title", "Ảnh TikTok"),
-        }
-      play_url = data.get("play")
-      if play_url:
-        return {
-            "success": True,
-            "type": "video",
-            "media_url": play_url,
-            "title": data.get("title", "Video TikTok"),
+            "media_url": media_url,
+            "title": title[:100],
         }
 
     return {
@@ -149,7 +120,10 @@ def download_universal_media(url: str) -> dict:
         ),
     }
   except Exception as e:
-    return {"success": False, "error": f"Lỗi hệ thống tải: {str(e)}"}
+    return {
+        "success": False,
+        "error": f"❌ Lỗi trích xuất (yt-dlp): {str(e)[:100]}",
+    }
 
 
 # --- MENU PHÂN TÁCH RIÊNG BIỆT ---
@@ -316,7 +290,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if current_mode == "all_media":
     wait_msg = await message.reply_text(
-        "⏳ Đang xử lý trích xuất video/ảnh không giới hạn..."
+        "⏳ Đang xử lý trích xuất video/ảnh bằng yt-dlp..."
     )
     res = download_universal_media(text_input)
     try:
@@ -390,7 +364,7 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print("🤖 Bot đã sẵn sàng tải mọi loại video & ảnh không giới hạn!")
+  print("🤖 Bot đã sẵn sàng với yt-dlp và quản lý Live/Die!")
   application.run_polling()
 
 
