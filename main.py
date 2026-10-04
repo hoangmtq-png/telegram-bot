@@ -38,10 +38,10 @@ async def schedule_message_deletion(context: ContextTypes.DEFAULT_TYPE):
     pass
 
 
-# --- HÀM GIẢI MÃ LINK RÚT GỌN FACEBOOK (/share/) ---
-def resolve_facebook_url(url: str) -> str:
+# --- HÀM GIẢI MÃ LINK RÚT GỌN ---
+def resolve_short_url(url: str) -> str:
   try:
-    if "/share/" in url or "fb.watch" in url:
+    if "/share/" in url or "fb.watch" in url or "vm.tiktok.com" in url:
       headers = {
           "User-Agent": (
               "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
@@ -58,10 +58,10 @@ def resolve_facebook_url(url: str) -> str:
     return url
 
 
-# --- CÁC TÍNH NĂNG CHUYÊN SÂU ---
+# --- BÓC TÁCH UID FACEBOOK ---
 def get_original_facebook_uid(url: str) -> str:
   try:
-    real_url = resolve_facebook_url(url)
+    real_url = resolve_short_url(url)
     if "id=" in real_url:
       match = re.search(r"id=(\d+)", real_url)
       if match:
@@ -79,31 +79,12 @@ def get_original_facebook_uid(url: str) -> str:
     return f"Lỗi xử lý UID: {str(e)}"
 
 
-def download_social_media_video(url: str, platform_type: str) -> dict:
+# --- HỆ THỐNG TẢI ĐA NĂNG (TẤT CẢ VIDEO & ẢNH KHÔNG GIỚI HẠN) ---
+def download_universal_media(url: str) -> dict:
   try:
-    if (
-        platform_type == "tiktok"
-        and "tiktok.com" not in url
-        and "douyin.com" not in url
-    ):
-      return {
-          "success": False,
-          "error": "⚠️ Vui lòng gửi link chính xác của TikTok hoặc Douyin!",
-      }
-    if (
-        platform_type == "facebook"
-        and "facebook.com" not in url
-        and "fb.watch" not in url
-    ):
-      return {
-          "success": False,
-          "error": (
-              "⚠️ Vui lòng gửi link chính xác của Facebook Video / Reels!"
-          ),
-      }
+    target_url = resolve_short_url(url)
 
-    target_url = resolve_facebook_url(url) if platform_type == "facebook" else url
-
+    # 1. Thử dùng Cobalt API (Hỗ trợ hầu hết FB, Insta, TikTok, YouTube, Twitter...)
     api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json",
@@ -120,27 +101,55 @@ def download_social_media_video(url: str, platform_type: str) -> dict:
 
     status = response.get("status")
     if status in ["stream", "redirect", "picker"]:
-      video_link = response.get("url")
-      if not video_link and response.get("picker"):
-        video_link = response["picker"][0].get("url")
+      media_link = response.get("url")
+      # Nếu là dạng album ảnh hoặc nhiều file (picker)
+      picker_items = response.get("picker")
+      if not media_link and picker_items:
+        media_link = picker_items[0].get("url")
 
-      if video_link:
+      if media_link:
+        is_photo = any(
+            ext in media_link.lower() for ext in [".jpg", ".jpeg", ".png", ".webp"]
+        )
         return {
             "success": True,
-            "title": response.get("filename", "Video mạng xã hội không logo"),
-            "video_url": video_link,
-            "author": "Mạng xã hội User",
+            "type": "photo" if is_photo else "video",
+            "media_url": media_link,
+            "title": response.get("filename", "Đ phương tiện tải xuống"),
+        }
+
+    # 2. Dự phòng bằng TikWM API nếu là TikTok/Douyin hoặc link phụ
+    fallback_api = f"https://www.tikwm.com/api/?url={requests.utils.quote(target_url)}"
+    res = requests.get(fallback_api, timeout=10).json()
+    if res.get("code") == 0:
+      data = res.get("data", {})
+      # Kiểm tra xem là video hay danh sách ảnh
+      images = data.get("images")
+      if images:
+        return {
+            "success": True,
+            "type": "album",
+            "media_url": images[0],  # Lấy ảnh đầu tiên hoặc xử lý danh sách
+            "title": data.get("title", "Ảnh TikTok"),
+        }
+      play_url = data.get("play")
+      if play_url:
+        return {
+            "success": True,
+            "type": "video",
+            "media_url": play_url,
+            "title": data.get("title", "Video TikTok"),
         }
 
     return {
         "success": False,
         "error": (
-            "❌ Không thể trích xuất video. Hãy đảm bảo bài viết/video ở chế độ"
-            " công khai!"
+            "❌ Không thể trích xuất. Hãy đảm bảo bài viết/video ở chế độ công"
+            " khai hoặc đúng định dạng!"
         ),
     }
   except Exception as e:
-    return {"success": False, "error": f"Lỗi kết nối hệ thống tải: {str(e)}"}
+    return {"success": False, "error": f"Lỗi hệ thống tải: {str(e)}"}
 
 
 # --- MENU PHÂN TÁCH RIÊNG BIỆT ---
@@ -148,12 +157,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
   keyboard = [
       [
           InlineKeyboardButton(
-              "📥 Tải Video TikTok / Douyin", callback_data="mode_tiktok"
-          )
-      ],
-      [
-          InlineKeyboardButton(
-              "📥 Tải Video Facebook / Reels", callback_data="mode_fb_video"
+              "📥 Tải Mọi Video & Ảnh (All-in-One)", callback_data="mode_all_media"
           )
       ],
       [
@@ -171,9 +175,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
   reply_markup = InlineKeyboardMarkup(keyboard)
 
   text = (
-      "✨ **HỆ THỐNG MENU ĐIỀU KHIỂN RIÊNG BIỆT**\n\n👇 Vui lòng bấm chọn một"
-      " tính năng bên dưới để bắt đầu sử dụng (Mỗi mục hoạt động độc lập, không"
-      " bị lộn xộn):"
+      "✨ **HỆ THỐNG MENU ĐIỀU KHIỂN KHÔNG GIỚI HẠN**\n\n👇 Bấm chọn tính năng"
+      " bên dưới:"
   )
 
   if update.message:
@@ -198,20 +201,12 @@ async def button_callback_handler(
       [[InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="home")]]
   )
 
-  if data == "mode_tiktok":
-    context.user_data["current_mode"] = "tiktok"
+  if data == "mode_all_media":
+    context.user_data["current_mode"] = "all_media"
     await query.edit_message_text(
-        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO TIKTOK / DOUYIN**\n\n- Gửi link"
-        " **TikTok** hoặc **Douyin** vào đây.\n- Nếu gửi sai link, hệ thống"
-        " sẽ từ chối.",
-        reply_markup=back_btn,
-        parse_mode="Markdown",
-    )
-  elif data == "mode_fb_video":
-    context.user_data["current_mode"] = "fb_video"
-    await query.edit_message_text(
-        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO FACEBOOK / REELS**\n\n- Gửi link"
-        " **Facebook Video / Reels** vào đây.\n- Các link khác sẽ bị từ chối.",
+        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI MỌI VIDEO & ẢNH**\n\n- Gửi bất kỳ link nào"
+        " (Facebook, Reels, TikTok, Instagram, YouTube...).\n- Bot sẽ tự động"
+        " nhận diện và tải về không giới hạn!",
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
@@ -219,13 +214,12 @@ async def button_callback_handler(
     context.user_data["current_mode"] = "fb_uid"
     await query.edit_message_text(
         "🔍 **ĐANG Ở CHẾ ĐỘ: LẤY UID FACEBOOK GỐC**\n\n- Gửi link bài viết hoặc"
-        " profile Facebook để lấy số UID chuẩn.",
+        " profile Facebook.",
         reply_markup=back_btn,
         parse_mode="Markdown",
     )
   elif data == "mode_livedie":
     context.user_data["current_mode"] = "livedie"
-    # Mẫu giao diện theo dõi live die acc như bạn yêu cầu
     live_die_markup = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -241,7 +235,7 @@ async def button_callback_handler(
     sample_report = (
         "🎉 **--- ACC SỐNG LẠI! ---** 🎉\n\n"
         "📖 **FACEBOOK LIVE**\n"
-        "👤 **Tên:** [Tên tài khoản mẫu]\n"
+        "👤 **Tên:** Tài khoản mẫu\n"
         "🔍 **UID:** `1000xxxxxxxxxxx` - Link\n"
         "🟢 **Trạng thái:** ĐÃ SỐNG LẠI ✅\n"
         "📝 **Ghi chú:** FAQ 583/2M (DANG CHIEN)\n"
@@ -281,7 +275,7 @@ async def button_callback_handler(
     await start_command(update, context)
 
 
-# --- XỬ LÝ TIN NHẮN ĐỘC LẬP & TỰ ĐỘNG XÓA SAU 30S ---
+# --- XỬ LÝ TIN NHẮN & TỰ ĐỘNG XÓA SAU 30S ---
 async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
   message = update.message
   text_input = message.text.strip()
@@ -289,8 +283,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if not current_mode:
     warning_msg = await message.reply_text(
-        "⚠️ Vui lòng bấm lệnh /start hoặc chọn một tính năng cụ thể trong menu"
-        " trước khi gửi link!"
+        "⚠️ Vui lòng bấm lệnh /start hoặc chọn tính năng trong menu trước!"
     )
     context.job_queue.run_once(
         schedule_message_deletion,
@@ -300,11 +293,8 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
 
   if current_mode == "livedie":
-    # Xử lý khi đang ở mode theo dõi live/die (ví dụ gửi ID acc hoặc link cần check)
     info_msg = await message.reply_text(
-        f"📊 Đang tiếp nhận thông tin theo dõi cho: `{text_input}`\nHệ thống"
-        " đang quét trạng thái Live/Die...",
-        parse_mode="Markdown",
+        f"📊 Đang thiết lập theo dõi cho: `{text_input}`", parse_mode="Markdown"
     )
     context.job_queue.run_once(
         schedule_message_deletion,
@@ -315,8 +305,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if "http://" not in text_input and "https://" not in text_input:
     err_msg = await message.reply_text(
-        "💡 Vui lòng gửi một đường dẫn (URL) hợp lệ theo đúng chế độ bạn đang"
-        " chọn!"
+        "💡 Vui lòng gửi một đường dẫn (URL) hợp lệ!"
     )
     context.job_queue.run_once(
         schedule_message_deletion,
@@ -325,62 +314,11 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
-  if current_mode == "tiktok":
-    if "tiktok.com" not in text_input and "douyin.com" not in text_input:
-      err_msg = await message.reply_text(
-          "❌ Bạn đang ở chế độ **Tải Video TikTok/Douyin**!\n⚠️️ Vui lòng gửi"
-          " đúng link TikTok/Douyin, không được gửi link khác."
-      )
-      context.job_queue.run_once(
-          schedule_message_deletion,
-          30,
-          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
-      )
-      return
-
-    wait_msg = await message.reply_text("⏳ Đang tải video TikTok/Douyin...")
-    res = download_social_media_video(text_input, "tiktok")
-    try:
-      await context.bot.delete_message(
-          chat_id=message.chat_id, message_id=wait_msg.message_id
-      )
-    except Exception:
-      pass
-
-    if res.get("success"):
-      await message.reply_video(
-          video=res["video_url"],
-          caption=(
-              f"🎬 **Tiêu đề:** {res['title']}\n👤 **Tác giả:**"
-              f" `{res['author']}`"
-          ),
-          parse_mode="Markdown",
-      )
-    else:
-      err_msg = await message.reply_text(res.get("error"))
-      context.job_queue.run_once(
-          schedule_message_deletion,
-          30,
-          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
-      )
-
-  elif current_mode == "fb_video":
-    if "facebook.com" not in text_input and "fb.watch" not in text_input:
-      err_msg = await message.reply_text(
-          "❌ Bạn đang ở chế độ **Tải Video Facebook**!\n⚠️ Vui lòng gửi đúng"
-          " link Facebook Video hoặc Reels."
-      )
-      context.job_queue.run_once(
-          schedule_message_deletion,
-          30,
-          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
-      )
-      return
-
+  if current_mode == "all_media":
     wait_msg = await message.reply_text(
-        "⏳ Đang xử lý tải video Facebook / Reels..."
+        "⏳ Đang xử lý trích xuất video/ảnh không giới hạn..."
     )
-    res = download_social_media_video(text_input, "facebook")
+    res = download_universal_media(text_input)
     try:
       await context.bot.delete_message(
           chat_id=message.chat_id, message_id=wait_msg.message_id
@@ -389,14 +327,18 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
       pass
 
     if res.get("success"):
-      await message.reply_video(
-          video=res["video_url"],
-          caption=(
-              f"🎬 **Facebook Video / Reels**\n👤 **Tác giả:**"
-              f" `{res['author']}`"
-          ),
-          parse_mode="Markdown",
-      )
+      media_type = res.get("type")
+      media_url = res.get("media_url")
+      title = res.get("title", "Media tải xuống")
+
+      if media_type == "photo":
+        await message.reply_photo(
+            photo=media_url, caption=f"📸 **{title}**", parse_mode="Markdown"
+        )
+      else:
+        await message.reply_video(
+            video=media_url, caption=f"🎬 **{title}**", parse_mode="Markdown"
+        )
     else:
       err_msg = await message.reply_text(res.get("error"))
       context.job_queue.run_once(
@@ -406,18 +348,6 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
       )
 
   elif current_mode == "fb_uid":
-    if "facebook.com" not in text_input and "fb.watch" not in text_input:
-      err_msg = await message.reply_text(
-          "❌ Bạn đang ở chế độ **Lấy UID Facebook**!\n⚠️ Vui lòng gửi link"
-          " Facebook hợp lệ."
-      )
-      context.job_queue.run_once(
-          schedule_message_deletion,
-          30,
-          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
-      )
-      return
-
     wait_msg = await message.reply_text("⏳ Đang bóc tách UID Facebook gốc...")
     uid_res = get_original_facebook_uid(text_input)
     try:
@@ -460,7 +390,7 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print("🤖 Bot đã tích hợp đầy đủ tính năng Theo dõi Live/Die và Tải video!")
+  print("🤖 Bot đã sẵn sàng tải mọi loại video & ảnh không giới hạn!")
   application.run_polling()
 
 
