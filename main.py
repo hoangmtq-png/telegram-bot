@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -23,11 +24,21 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 
-# Khởi tạo Flask App đáp ứng yêu cầu port của Render
 app = Flask(__name__)
 
 
-# --- CÁC TÍNH NĂNG NÂNG CAO ---
+# --- HỆ THỐNG TỰ ĐỘNG XÓA TIN NHẮN SAU 30S ---
+async def schedule_message_deletion(context: ContextTypes.DEFAULT_TYPE):
+  job = context.job
+  chat_id = job.data.get("chat_id")
+  message_id = job.data.get("message_id")
+  try:
+    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+  except Exception:
+    pass  # Bỏ qua nếu tin nhắn đã bị xóa từ trước
+
+
+# --- CÁC TÍNH NĂNG CHUYÊN SÂU ---
 def get_original_facebook_uid(url: str) -> str:
   try:
     if "id=" in url:
@@ -61,8 +72,28 @@ def get_original_facebook_uid(url: str) -> str:
     return f"Lỗi xử lý UID: {str(e)}"
 
 
-def download_social_media_video(url: str) -> dict:
+def download_social_media_video(url: str, platform_type: str) -> dict:
   try:
+    # Nếu đang chọn chế độ TikTok/Douyin mà gửi link khác -> Chặn ngay từ hàm logic
+    if (
+        platform_type == "tiktok"
+        and "tiktok.com" not in url
+        and "douyin.com" not in url
+    ):
+      return {
+          "success": False,
+          "error": "⚠️ Vui lòng gửi link chính xác của TikTok hoặc Douyin!",
+      }
+    if (
+        platform_type == "facebook"
+        and "facebook.com" not in url
+        and "fb.watch" not in url
+    ):
+      return {
+          "success": False,
+          "error": "⚠️ Vui lòng gửi link chính xác của Facebook Video!",
+      }
+
     api_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
     res = requests.get(api_url, timeout=10).json()
 
@@ -73,58 +104,54 @@ def download_social_media_video(url: str) -> dict:
           "title": data.get("title", "Video không tiêu đề"),
           "video_url": data.get("play"),
           "author": data.get("author", {}).get("nickname", "Chính chủ"),
-          "platform": "TikTok / Douyin / FB",
       }
 
     return {
         "success": False,
-        "error": "Không thể trích xuất video từ liên kết này.",
+        "error": "Không thể trích xuất video. Hãy đảm bảo link ở chế độ công khai!",
     }
   except Exception as e:
     return {"success": False, "error": f"Lỗi kết nối: {str(e)}"}
 
 
-# --- GIAO DIỆN MENU TELEGRAM ---
+# --- MENU PHÂN TÁCH RIÊNG BIỆT ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  user = update.effective_user
   keyboard = [
       [
           InlineKeyboardButton(
-              "📥 Tải Video (TikTok / Douyin / FB)", callback_data="menu_download"
+              "📥 Tải Video TikTok / Douyin", callback_data="mode_tiktok"
           )
       ],
       [
           InlineKeyboardButton(
-              "🔍 Rút Gọn & Lấy UID Facebook Gốc", callback_data="menu_uid"
+              "📥 Tải Video Facebook", callback_data="mode_fb_video"
           )
       ],
       [
           InlineKeyboardButton(
-              "🟢 Trạng Thái Hệ Thống SMM (24/7)", callback_data="menu_status"
+              "🔍 Lấy UID Facebook Gốc", callback_data="mode_fb_uid"
           )
       ],
-      [
-          InlineKeyboardButton(
-              "⚙️ Hướng Dẫn & Hỗ Trợ", callback_data="menu_help"
-          )
-      ],
+      [InlineKeyboardButton("🟢 Trạng Thái Hệ Thống", callback_data="mode_status")],
   ]
   reply_markup = InlineKeyboardMarkup(keyboard)
 
-  welcome_text = (
-      f"✨ Chào mừng **{user.first_name}** đến với hệ thống **Smart SMM & Media"
-      " Bot**!\n\n👇 Chọn tính năng bên dưới hoặc gửi trực tiếp Link:"
+  text = (
+      "✨ **HỆ THỐNG MENU ĐIỀU KHIỂN RIÊNG BIỆT**\n\n👇 Vui lòng bấm chọn một"
+      " tính năng bên dưới để bắt đầu sử dụng (Mỗi mục hoạt động độc lập, không"
+      " bị lộn xộn):"
   )
 
   if update.message:
-    await update.message.reply_text(
-        welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
+    msg = await update.message.reply_text(
+        text, reply_markup=reply_markup, parse_mode="Markdown"
     )
+    # Lên lịch tự động xóa sau 30s (tùy chọn cho menu chính, hoặc giữ lại)
   elif update.callback_query:
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        text=welcome_text, reply_markup=reply_markup, parse_mode="Markdown"
+        text, reply_markup=reply_markup, parse_mode="Markdown"
     )
 
 
@@ -134,88 +161,195 @@ async def button_callback_handler(
   query = update.callback_query
   await query.answer()
   data = query.data
-  back_keyboard = InlineKeyboardMarkup(
-      [[InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="menu_home")]]
+  back_btn = InlineKeyboardMarkup(
+      [[InlineKeyboardButton("🔙 Quay lại Menu Chính", callback_data="home")]]
   )
 
-  if data == "menu_download":
-    context.user_data["active_mode"] = "download"
+  if data == "mode_tiktok":
+    context.user_data["current_mode"] = "tiktok"
     await query.edit_message_text(
-        "📥 **CHẾ ĐỘ TẢI VIDEO ĐANG BẬT**\n\nGửi trực tiếp link video vào đây!",
-        reply_markup=back_keyboard,
+        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO TIKTOK / DOUYIN**\n\n- Gửi link"
+        " **TikTok** hoặc **Douyin** vào đây.\n- Nếu bạn gửi link sai (ví dụ"
+        " link FB), hệ thống sẽ từ chối xử lý.",
+        reply_markup=back_btn,
         parse_mode="Markdown",
     )
-  elif data == "menu_uid":
-    context.user_data["active_mode"] = "uid"
+  elif data == "mode_fb_video":
+    context.user_data["current_mode"] = "fb_video"
     await query.edit_message_text(
-        "🔍 **CHẾ ĐỘ LẤY UID FACEBOOK ĐANG BẬT**\n\nGửi link Facebook vào đây!",
-        reply_markup=back_keyboard,
+        "📥 **ĐANG Ở CHẾ ĐỘ: TẢI VIDEO FACEBOOK**\n\n- Gửi link **Facebook Video**"
+        " vào đây.\n- Các link khác sẽ bị từ chối.",
+        reply_markup=back_btn,
         parse_mode="Markdown",
     )
-  elif data == "menu_status":
+  elif data == "mode_fb_uid":
+    context.user_data["current_mode"] = "fb_uid"
+    await query.edit_message_text(
+        "🔍 **ĐANG Ở CHẾ ĐỘ: LẤY UID FACEBOOK GỐC**\n\n- Gửi link bài viết hoặc"
+        " profile Facebook để lấy số UID chính xác.",
+        reply_markup=back_btn,
+        parse_mode="Markdown",
+    )
+  elif data == "mode_status":
     status_text = (
-        "🟢 **HỆ THỐNG DỊCH VỤ MẠNG XÃ HỘI (24/7)**\n\n- Trạng thái: Hoạt"
-        " động ổn định 100%\n- Server: Render Cloud Online"
+        "🟢 **TRẠNG THÁI HỆ THỐNG SMM 24/7**\n\n- API Trực tuyến: 100%\n- Server"
+        " Render: Hoạt động ổn định"
     )
     await query.edit_message_text(
-        text=status_text, reply_markup=back_keyboard, parse_mode="Markdown"
+        text=status_text, reply_markup=back_btn, parse_mode="Markdown"
     )
-  elif data == "menu_help":
-    await query.edit_message_text(
-        "⚙️ **HƯỚNG DẪN:** Gửi link để bot tự động xử lý.",
-        reply_markup=back_keyboard,
-        parse_mode="Markdown",
-    )
-  elif data == "menu_home":
+  elif data == "home":
     await start_command(update, context)
 
 
+# --- XỬ LÝ TIN NHẮN ĐỘC LẬP & KIỂM TRA NGẶT NGHÈO ---
 async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  text_input = update.message.text.strip()
-  current_mode = context.user_data.get("active_mode", "download")
+  message = update.message
+  text_input = message.text.strip()
+  current_mode = context.user_data.get("current_mode", None)
 
-  if "http://" in text_input or "https://" in text_input:
-    if "facebook.com" in text_input or "fb.watch" in text_input:
-      if current_mode == "uid" or "profile.php" in text_input:
-        await update.message.reply_text("⏳ Đang phân tích UID gốc...")
-        uid_res = get_original_facebook_uid(text_input)
-        await update.message.reply_text(
-            f"🎯 **KẾT QUẢ UID:**\n`{uid_res}`", parse_mode="Markdown"
-        )
-        return
+  # Nếu chưa chọn chế độ từ menu
+  if not current_mode:
+    warning_msg = await message.reply_text(
+        "⚠️ Vui lòng bấm lệnh /start hoặc chọn một tính năng cụ thể trong menu"
+        " trước khi gửi link!"
+    )
+    # Tự động xóa thông báo nhắc nhở này sau 30 giây
+    context.job_queue.run_once(
+        schedule_message_deletion,
+        30,
+        data={"chat_id": message.chat_id, "message_id": warning_msg.message_id},
+    )
+    return
 
-    if any(
-        d in text_input
-        for d in ["tiktok.com", "douyin.com", "facebook.com", "fb.watch"]
-    ):
-      await update.message.reply_text("⏳ Đang xử lý tải video...")
-      res = download_social_media_video(text_input)
-      if res.get("success") and res.get("video_url"):
-        try:
-          await update.message.reply_video(
-              video=res["video_url"],
-              caption=(
-                  f"🎬 **Tiêu đề:** {res['title']}\n👤 **Tác giả:**"
-                  f" `{res['author']}`"
-              ),
-              parse_mode="Markdown",
-          )
-        except Exception:
-          await update.message.reply_text(
-              f"✅ Link tải trực tiếp:\n{res['video_url']}"
-          )
-      else:
-        await update.message.reply_text("⚠️ Không thể tải video từ link này.")
+  if "http://" not in text_input and "https://" not in text_input:
+    err_msg = await message.reply_text(
+        "💡 Vui lòng gửi một đường dẫn (URL) hợp lệ theo đúng chế độ bạn đang"
+        " chọn!"
+    )
+    context.job_queue.run_once(
+        schedule_message_deletion,
+        30,
+        data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+    )
+    return
+
+  # KIỂM TRA NGẶT NGHÈO THEO TỪNG MỤC RIÊNG BIỆT
+  if current_mode == "tiktok":
+    if "tiktok.com" not in text_input and "douyin.com" not in text_input:
+      err_msg = await message.reply_text(
+          "❌ Bạn đang ở chế độ **Tải Video TikTok/Douyin**!\n⚠️ Vui lòng gửi"
+          " đúng link TikTok/Douyin, không được gửi link khác."
+      )
+      context.job_queue.run_once(
+          schedule_message_deletion,
+          30,
+          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+      )
+      return
+
+    wait_msg = await message.reply_text("⏳ Đang tải video TikTok/Douyin...")
+    res = download_social_media_video(text_input, "tiktok")
+    try:
+      await context.bot.delete_message(
+          chat_id=message.chat_id, message_id=wait_msg.message_id
+      )
+    except Exception:
+      pass
+
+    if res.get("success"):
+      sent_vid = await message.reply_video(
+          video=res["video_url"],
+          caption=(
+              f"🎬 **Tiêu đề:** {res['title']}\n👤 **Tác giả:**"
+              f" `{res['author']}`"
+          ),
+          parse_mode="Markdown",
+      )
+      # Tự động xóa video/tin nhắn tải về sau 30 giây nếu muốn (hoặc giữ lại tùy ý bạn)
     else:
-      await update.message.reply_text("⚠️ Đường dẫn không được hỗ trợ!")
-  else:
-    await update.message.reply_text("💡 Vui lòng gửi một đường dẫn (URL) hợp lệ!")
+      err_msg = await message.reply_text(res.get("error"))
+      context.job_queue.run_once(
+          schedule_message_deletion,
+          30,
+          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+      )
+
+  elif current_mode == "fb_video":
+    if "facebook.com" not in text_input and "fb.watch" not in text_input:
+      err_msg = await message.reply_text(
+          "❌ Bạn đang ở chế độ **Tải Video Facebook**!\n⚠️ Vui lòng gửi đúng"
+          " link Facebook Video."
+      )
+      context.job_queue.run_once(
+          schedule_message_deletion,
+          30,
+          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+      )
+      return
+
+    wait_msg = await message.reply_text("⏳ Đang xử lý tải video Facebook...")
+    res = download_social_media_video(text_input, "facebook")
+    try:
+      await context.bot.delete_message(
+          chat_id=message.chat_id, message_id=wait_msg.message_id
+      )
+    except Exception:
+      pass
+
+    if res.get("success"):
+      await message.reply_video(
+          video=res["video_url"],
+          caption=(
+              f"🎬 **Facebook Video**\n👤 **Tác giả:** `{res['author']}`"
+          ),
+          parse_mode="Markdown",
+      )
+    else:
+      err_msg = await message.reply_text(res.get("error"))
+      context.job_queue.run_once(
+          schedule_message_deletion,
+          30,
+          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+      )
+
+  elif current_mode == "fb_uid":
+    if "facebook.com" not in text_input and "fb.watch" not in text_input:
+      err_msg = await message.reply_text(
+          "❌ Bạn đang ở chế độ **Lấy UID Facebook**!\n⚠️ Vui lòng gửi link"
+          " Facebook hợp lệ."
+      )
+      context.job_queue.run_once(
+          schedule_message_deletion,
+          30,
+          data={"chat_id": message.chat_id, "message_id": err_msg.message_id},
+      )
+      return
+
+    wait_msg = await message.reply_text("⏳ Đang bóc tách UID Facebook gốc...")
+    uid_res = get_original_facebook_uid(text_input)
+    try:
+      await context.bot.delete_message(
+          chat_id=message.chat_id, message_id=wait_msg.message_id
+      )
+    except Exception:
+      pass
+
+    result_msg = await message.reply_text(
+        f"🎯 **KẾT QUẢ UID GỐC:**\n`{uid_res}`", parse_mode="Markdown"
+    )
+    # Xóa kết quả UID sau 30 giây để bảo mật / dọn sạch chat
+    context.job_queue.run_once(
+        schedule_message_deletion,
+        30,
+        data={"chat_id": message.chat_id, "message_id": result_msg.message_id},
+    )
 
 
-# --- FLASK SERVER ROUTES (Giữ port render mở 24/7) ---
+# --- FLASK SERVER (Duy trì Render 24/7) ---
 @app.route("/")
 def index():
-  return "🤖 Telegram Bot is running smoothly on Render 24/7!"
+  return "🤖 Bot is running 24/7!"
 
 
 def run_flask():
@@ -223,16 +357,10 @@ def run_flask():
 
 
 def main():
-  # Khởi chạy Flask ở một Thread riêng biệt để mở Port HTTP cho Render
   flask_thread = threading.Thread(target=run_flask)
   flask_thread.daemon = True
   flask_thread.start()
-  logger.info(
-      f"🚀 Flask Web Server đã mở tại cổng {PORT} để đáp ứng yêu cầu của"
-      " Render."
-  )
 
-  # Khởi tạo Telegram Bot chạy Polling trực tiếp ở luồng chính (Ổn định tuyệt đối)
   application = Application.builder().token(TOKEN).build()
 
   application.add_handler(CommandHandler("start", start_command))
@@ -241,7 +369,7 @@ def main():
       MessageHandler(filters.TEXT & (~filters.COMMAND), message_router)
   )
 
-  print("🤖 Telegram Bot đang chạy chế độ Polling mượt mà...")
+  print("🤖 Bot đang chạy hoàn hảo với tính năng phân tách menu & tự xóa 30s...")
   application.run_polling()
 
 
