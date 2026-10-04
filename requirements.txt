@@ -1,5 +1,4 @@
-Flask
-python-telegram-bot
-yt-dlp
+flask
 requests
-httpx
+python-telegram-bot
+gunicorn
