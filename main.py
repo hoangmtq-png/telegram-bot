@@ -4,9 +4,11 @@ BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)
 - Nạp tự động: SePay/Casso webhook -> cộng tiền theo nội dung "NAP <ID Telegram>"
 - Admin: danh sách khách & số dư, cộng/trừ tiền, thêm/xoá acc, broadcast, gửi tin riêng, thống kê
 - Tự động xoá tin rác của bot, bấm tác vụ mới thì tin cũ biến mất, bấm Nạp Tiền ra QR ngay
-Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress)
+- TỰ SAO LƯU database vào Telegram (ghim trong chat admin) và TỰ KHÔI PHỤC khi khởi động
+Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress, segno)
 """
 import asyncio, hmac, html, json, logging, os, re, sqlite3, threading, time
+import io
 import urllib.request
 from urllib.parse import quote
 
@@ -41,6 +43,7 @@ def _parse_admin_ids(raw: str) -> set:
 
 ADMIN_IDS = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
 BANK_CODE = "MB"
+BANK_BIN = "970422"   # mã BIN ngân hàng (MB = 970422, VCB = 970436, ACB = 970416, TCB = 970407, BIDV = 970418, VietinBank = 970415)
 BANK_ACCOUNT = "3030777777"
 BANK_OWNER = "NGUYEN TIEN DAT"
 SEPAY_API_KEY = os.getenv("SEPAY_API_KEY", "")   # API key đặt trong SePay (webhook)
@@ -75,6 +78,50 @@ PRICE_PRESETS = [
 
 logging.basicConfig(level=logging.INFO)
 router = Router()
+
+# ----------------------- KHÔI PHỤC DATABASE TỪ TELEGRAM -----------------------
+# Mặc định BẬT. Đặt biến môi trường AUTO_BACKUP=0 nếu muốn tắt.
+AUTO_BACKUP = os.getenv("AUTO_BACKUP", "1") != "0"
+RESTORE_STATUS = "skip"   # skip | restored | none | error
+
+
+def restore_from_telegram() -> str:
+    """Container mới (mất file DB) -> lấy lại bản sao lưu đang được GHIM trong chat riêng với admin đầu tiên."""
+    if not AUTO_BACKUP:
+        return "skip"
+    if os.path.exists(DB_FILE) and os.path.getsize(DB_FILE) > 0:
+        return "skip"
+    if not BOT_TOKEN or not ADMIN_IDS:
+        return "skip"
+    base = f"https://api.telegram.org/bot{BOT_TOKEN}"
+    ad = min(ADMIN_IDS)
+    last_err = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(f"{base}/getChat?chat_id={ad}", timeout=20) as r:
+                pm = json.load(r)["result"].get("pinned_message")
+            doc = (pm or {}).get("document")
+            if not doc or not str((pm or {}).get("caption", "")).startswith("💾 AUTO_BACKUP"):
+                print("[BACKUP] Chưa có bản sao lưu nào được ghim -> bắt đầu database mới")
+                return "none"
+            with urllib.request.urlopen(f"{base}/getFile?file_id={doc['file_id']}", timeout=20) as r:
+                fpath = json.load(r)["result"]["file_path"]
+            with urllib.request.urlopen(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=60) as r:
+                data = r.read()
+            if not data.startswith(b"SQLite format 3"):
+                raise ValueError("file sao lưu không phải SQLite")
+            with open(DB_FILE, "wb") as f:
+                f.write(data)
+            print(f"[BACKUP] Đã khôi phục database từ Telegram ({len(data)} bytes)")
+            return "restored"
+        except Exception as e:
+            last_err = e
+            time.sleep(2)
+    print(f"[BACKUP] LỖI khôi phục database: {last_err!r}")
+    return "error"
+
+
+RESTORE_STATUS = restore_from_telegram()
 
 # ----------------------------- DATABASE -----------------------------
 db = sqlite3.connect(DB_FILE, isolation_level=None, check_same_thread=False)
@@ -169,6 +216,15 @@ def back_main():
     return b.as_markup()
 
 
+def nav_kb(back_cb="adm:home", back_text="⬅️ Quay lại Admin"):
+    """Nút Quay lại + Menu Chính gắn vào mọi bước nhập."""
+    b = InlineKeyboardBuilder()
+    b.button(text=back_text, callback_data=back_cb)
+    b.button(text="🏠 Menu Chính", callback_data="menu:main")
+    b.adjust(2)
+    return b.as_markup()
+
+
 def admin_menu():
     b = InlineKeyboardBuilder()
     for t, c in [
@@ -189,16 +245,30 @@ def admin_menu():
 
 # ----------------------------- CHẶN KẸT TRẠNG THÁI + BẮT LỖI -----------------------------
 async def reset_state_on_command(handler, event, data):
-    """Gõ bất kỳ lệnh /... (trừ /done) khi đang nhập dở thì thoát trạng thái nhập, tránh bot hiểu nhầm."""
+    """1) Gõ lệnh /... (trừ /done) khi đang nhập dở thì thoát trạng thái nhập.
+    2) Khi đang ở bước nhập (thêm acc, cộng tiền, nhập giá...): xoá tin nhắn nhắc cũ của bot
+       và xoá luôn tin khách/admin vừa gõ sau khi xử lý xong, để khung chat luôn gọn."""
+    st = data.get("state")
     t = (getattr(event, "text", None) or "").strip()
     if t.startswith("/"):
         cmd = t.split()[0].split("@")[0].lower()
         if cmd != "/done":
-            st = data.get("state")
             if st is not None:
                 await st.clear()
                 data["raw_state"] = None
-    return await handler(event, data)
+    tidy = False
+    if st is not None and getattr(getattr(event, "chat", None), "type", "") == "private":
+        tidy = (await st.get_state()) is not None
+    if tidy:
+        await wipe_tracked(event.bot, event.chat.id)
+    try:
+        return await handler(event, data)
+    finally:
+        if tidy:
+            try:
+                await event.delete()
+            except Exception:
+                pass
 
 
 router.message.outer_middleware(reset_state_on_command)
@@ -234,6 +304,15 @@ async def _delete_later(bot, chat_id, ids, ttl):
     cur = TRACK.get(chat_id)
     if cur:
         TRACK[chat_id] = [x for x in cur if x not in ids]
+
+
+async def wipe_tracked(bot, chat_id):
+    """Xoá các tin của bot đang hiển thị trong chat (tin nhắc, báo lỗi...)."""
+    for i in TRACK.pop(chat_id, []):
+        try:
+            await bot.delete_message(chat_id, i)
+        except Exception:
+            pass
 
 
 class TrackMW(BaseRequestMiddleware):
@@ -593,7 +672,8 @@ async def cb_filter_custom(c: CallbackQuery, state: FSMContext):
     await c.message.answer(
         "✍️ Nhập khoảng giá theo dạng <code>từ-đến</code>\n"
         "VD: <code>50000-200000</code> hoặc <code>50k-200k</code> hoặc <code>1tr-3tr</code>\n"
-        "Chỉ muốn 'từ ... trở lên': <code>100k-</code>")
+        "Chỉ muốn 'từ ... trở lên': <code>100k-</code>",
+        reply_markup=nav_kb(f"fb:{game}", "⬅️ Quay lại danh sách"))
     await c.answer()
 
 
@@ -604,7 +684,7 @@ async def filter_custom_input(m: Message, state: FSMContext):
         lo = to_vnd(parts[0])
         hi = to_vnd(parts[1]) if len(parts) > 1 else 0
     except Exception:
-        return await m.answer("❌ Sai định dạng. VD: <code>50k-200k</code>")
+        return await m.answer("❌ Sai định dạng. VD: <code>50k-200k</code>", reply_markup=nav_kb("menu:shop", "⬅️ Chọn game"))
     lo, hi = min(lo, 10**9), min(hi, 10**9)
     if hi and hi < lo:
         lo, hi = hi, lo
@@ -662,6 +742,8 @@ async def cb_buy(c: CallbackQuery):
     if balance(uid) < a["price"]:
         b = InlineKeyboardBuilder()
         b.button(text="💳 Nạp tiền", callback_data="menu:deposit")
+        b.button(text="🏠 Menu Chính", callback_data="menu:main")
+        b.adjust(1)
         await c.message.answer(
             f"❌ Số dư không đủ!\nCần: <b>{money(a['price'])}</b> | Có: <b>{money(balance(uid))}</b>",
             reply_markup=b.as_markup())
@@ -723,6 +805,39 @@ def send_qr_text(uid, amount=0):
     return url, cap
 
 
+def _tlv(tag: str, val: str) -> str:
+    return f"{tag}{len(val):02d}{val}"
+
+
+def _crc16(data: str) -> int:
+    crc = 0xFFFF
+    for byte in data.encode():
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
+            crc &= 0xFFFF
+    return crc
+
+
+def vietqr_payload(amount: int, content: str) -> str:
+    """Tạo chuỗi VietQR (chuẩn NAPAS 247) để tự vẽ QR, không cần web ngoài."""
+    acc = _tlv("00", BANK_BIN) + _tlv("01", BANK_ACCOUNT)
+    merchant = _tlv("00", "A000000727") + _tlv("01", acc) + _tlv("02", "QRIBFTTA")
+    p = _tlv("00", "01") + _tlv("01", "12" if amount else "11") + _tlv("38", merchant) + _tlv("53", "704")
+    if amount:
+        p += _tlv("54", str(int(amount)))
+    p += _tlv("58", "VN") + _tlv("62", _tlv("08", content))
+    p += "6304"
+    return p + f"{_crc16(p):04X}"
+
+
+def make_qr_png(amount: int, content: str) -> bytes:
+    import segno
+    buf = io.BytesIO()
+    segno.make(vietqr_payload(amount, content), error="m").save(buf, kind="png", scale=8, border=4)
+    return buf.getvalue()
+
+
 def _download(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -732,19 +847,20 @@ def _download(url: str) -> bytes:
 async def send_qr(target: Message, uid: int, amount: int = 0):
     url, cap = send_qr_text(uid, amount)
     kb = deposit_kb()
-    # Cách 1: bot tự tải ảnh QR rồi gửi lên (ổn định nhất)
+    # Cách 1: bot tự vẽ QR VietQR ngay trên server (không phụ thuộc web ngoài)
+    try:
+        data = make_qr_png(amount, f"NAP{uid}")
+        await target.answer_photo(BufferedInputFile(data, filename="qr.png"), caption=cap, reply_markup=kb)
+        return
+    except Exception:
+        logging.exception("Tự vẽ QR thất bại (đã cài segno chưa?), thử tải từ vietqr.io")
+    # Cách 2: tải ảnh từ img.vietqr.io rồi gửi lên
     try:
         data = await asyncio.get_running_loop().run_in_executor(None, _download, url)
         await target.answer_photo(BufferedInputFile(data, filename="qr.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
-        logging.exception("Tải QR thất bại, thử gửi bằng link")
-    # Cách 2: để Telegram tự tải từ link
-    try:
-        await target.answer_photo(url, caption=cap, reply_markup=kb)
-        return
-    except Exception:
-        logging.exception("Không gửi được ảnh QR")
+        logging.exception("Tải QR từ vietqr.io thất bại")
     # Cách 3: gửi chữ
     await target.answer(cap + "\n\n(Không tải được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
                         reply_markup=kb)
@@ -761,7 +877,7 @@ async def cb_dep(c: CallbackQuery, state: FSMContext):
     v = c.data.split(":")[1]
     if v == "custom":
         await state.set_state(Dep.amount)
-        await c.message.answer("✍️ Nhập số tiền muốn nạp (tối thiểu 10.000):")
+        await c.message.answer("✍️ Nhập số tiền muốn nạp (tối thiểu 10.000):", reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
     else:
         await send_qr(c.message, c.from_user.id, int(v))
     await c.answer()
@@ -771,7 +887,7 @@ async def cb_dep(c: CallbackQuery, state: FSMContext):
 async def dep_amount(m: Message, state: FSMContext):
     txt = re.sub(r"\D", "", m.text or "")
     if not txt or int(txt) < 10000 or int(txt) > 500_000_000:
-        await m.answer("❌ Số tiền không hợp lệ (từ 10.000 đến 500.000.000).")
+        await m.answer("❌ Số tiền không hợp lệ (từ 10.000 đến 500.000.000).", reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
         return
     await state.clear()
     await send_qr(m, m.from_user.id, int(txt))
@@ -857,7 +973,9 @@ ADMIN_GUIDE = (
     "<b>💳 Nạp tiền tự động</b>: khách chuyển khoản đúng nội dung <code>NAP+ID</code> → "
     "SePay gọi webhook → bot tự cộng tiền và báo cho khách + admin.\n"
     "Nạp sai nội dung: tự cộng thủ công bằng <code>/cong ID SỐ_TIỀN</code> sau khi kiểm tra bill.\n\n"
-    "<b>💾 Sao lưu</b>: gõ <code>/backup</code> để nhận file database, nên làm mỗi ngày.\n\n"
+    "<b>💾 Sao lưu</b>: bot TỰ sao lưu database vào chat này (tin được ghim <code>💾 AUTO_BACKUP</code>, "
+    "<b>đừng xoá / bỏ ghim</b>) và TỰ khôi phục khi khởi động lại. "
+    "Gõ <code>/backup</code> để nhận thêm 1 bản lưu thủ công về máy.\n\n"
     "<b>🧹 Tự xoá tin</b>: tin rác của bot tự xoá sau 1 phút; bấm tác vụ khác thì tin cũ biến mất. "
     "Tin acc mua thành công, báo nạp tiền, broadcast, backup không bị xoá.\n\n"
     "<b>Lệnh hữu ích</b>: /admin mở panel • /huy huỷ thao tác đang làm • /done kết thúc gửi ảnh."
@@ -893,7 +1011,7 @@ async def adm_guide(c: CallbackQuery):
 @router.callback_query(F.data == "adm:money", admin_only)
 async def adm_money(c: CallbackQuery, state: FSMContext):
     await state.set_state(MoneyS.data)
-    await c.message.answer("💰 Nhập: <code>ID_TELE SỐ_TIỀN</code>\nVD cộng: <code>123456789 50000</code>\nVD trừ: <code>123456789 -20000</code>")
+    await c.message.answer("💰 Nhập: <code>ID_TELE SỐ_TIỀN</code>\nVD cộng: <code>123456789 50000</code>\nVD trừ: <code>123456789 -20000</code>", reply_markup=nav_kb())
     await c.answer()
 
 
@@ -914,7 +1032,7 @@ async def adm_money_data(m: Message, state: FSMContext):
     try:
         uid, amount = int(parts[0]), int(parts[1])
     except Exception:
-        await m.answer("❌ Sai cú pháp. VD: <code>123456789 50000</code>")
+        await m.answer("❌ Sai cú pháp. VD: <code>123456789 50000</code>", reply_markup=nav_kb())
         return
     await state.clear()
     await m.answer(await do_money(m.bot, m.from_user.id, uid, amount), reply_markup=admin_menu())
@@ -946,6 +1064,8 @@ async def adm_add(c: CallbackQuery, state: FSMContext):
     b = InlineKeyboardBuilder()
     for k, n in GAMES.items():
         b.button(text=n, callback_data=f"addgame:{k}")
+    b.button(text="⬅️ Quay lại Admin", callback_data="adm:home")
+    b.button(text="🏠 Menu Chính", callback_data="menu:main")
     b.adjust(1)
     await state.set_state(AddAcc.game)
     await c.message.answer("➕ Chọn game cho acc mới:", reply_markup=b.as_markup())
@@ -956,7 +1076,7 @@ async def adm_add(c: CallbackQuery, state: FSMContext):
 async def adm_add_game(c: CallbackQuery, state: FSMContext):
     await state.update_data(game=c.data.split(":")[1], photos=[])
     await state.set_state(AddAcc.price)
-    await c.message.answer("💵 Nhập giá bán (số, VD: 150000):")
+    await c.message.answer("💵 Nhập giá bán (số, VD: 150000):", reply_markup=nav_kb())
     await c.answer()
 
 
@@ -964,13 +1084,15 @@ async def adm_add_game(c: CallbackQuery, state: FSMContext):
 async def add_price(m: Message, state: FSMContext):
     v = re.sub(r"\D", "", m.text or "")
     if not v or int(v) > 10**9:
-        return await m.answer("❌ Nhập số tiền hợp lệ (VD: 150000).")
+        return await m.answer("❌ Nhập số tiền hợp lệ (VD: 150000).", reply_markup=nav_kb())
     await state.update_data(price=int(v))
     await state.set_state(AddAcc.vip)
     kb = InlineKeyboardBuilder()
     for lv in VIP_LEVELS:
         kb.button(text=f"VIP {lv}", callback_data=f"addvip:{lv}")
-    kb.adjust(3)
+    kb.button(text="⬅️ Quay lại Admin", callback_data="adm:home")
+    kb.button(text="🏠 Menu Chính", callback_data="menu:main")
+    kb.adjust(*([3] * (len(VIP_LEVELS) // 3)), *([len(VIP_LEVELS) % 3] if len(VIP_LEVELS) % 3 else []), 2)
     await m.answer("⭐ Chọn cấp VIP cho acc:", reply_markup=kb.as_markup())
 
 
@@ -978,35 +1100,35 @@ async def add_price(m: Message, state: FSMContext):
 async def add_vip(c: CallbackQuery, state: FSMContext):
     await state.update_data(vip=int(c.data.split(":")[1]))
     await state.set_state(AddAcc.title)
-    await c.message.answer("📝 Nhập tiêu đề ngắn (VD: Acc rank Cao Thủ 50 skin):")
+    await c.message.answer("📝 Nhập tiêu đề ngắn (VD: Acc rank Cao Thủ 50 skin):", reply_markup=nav_kb())
     await c.answer()
 
 
 @router.message(AddAcc.title)
 async def add_title(m: Message, state: FSMContext):
     if not (m.text or "").strip():
-        return await m.answer("❌ Hãy nhập bằng chữ (không gửi ảnh/file).")
+        return await m.answer("❌ Hãy nhập bằng chữ (không gửi ảnh/file).", reply_markup=nav_kb())
     await state.update_data(title=m.text.strip()[:120])
     await state.set_state(AddAcc.info)
-    await m.answer("ℹ️ Nhập mô tả chi tiết (rank, skin, tướng, súng, level...):")
+    await m.answer("ℹ️ Nhập mô tả chi tiết (rank, skin, tướng, súng, level...):", reply_markup=nav_kb())
 
 
 @router.message(AddAcc.info)
 async def add_info(m: Message, state: FSMContext):
     if not (m.text or "").strip():
-        return await m.answer("❌ Hãy nhập bằng chữ (không gửi ảnh/file).")
+        return await m.answer("❌ Hãy nhập bằng chữ (không gửi ảnh/file).", reply_markup=nav_kb())
     await state.update_data(info=m.text.strip()[:1500])
     await state.set_state(AddAcc.login)
-    await m.answer("🔐 Nhập thông tin đăng nhập (VD: <code>user|pass</code>) - chỉ gửi cho khách SAU KHI mua:")
+    await m.answer("🔐 Nhập thông tin đăng nhập (VD: <code>user|pass</code>) - chỉ gửi cho khách SAU KHI mua:", reply_markup=nav_kb())
 
 
 @router.message(AddAcc.login)
 async def add_login(m: Message, state: FSMContext):
     if not (m.text or "").strip():
-        return await m.answer("❌ Hãy nhập bằng chữ, ví dụ: <code>user|pass</code>")
+        return await m.answer("❌ Hãy nhập bằng chữ, ví dụ: <code>user|pass</code>", reply_markup=nav_kb())
     await state.update_data(login=m.text.strip())
     await state.set_state(AddAcc.photos)
-    await m.answer("🖼 Gửi các ảnh của acc (tối đa 10). Xong gõ /done (không có ảnh cũng gõ /done).")
+    await m.answer("🖼 Gửi các ảnh của acc (tối đa 10). Xong gõ /done (không có ảnh cũng gõ /done).", reply_markup=nav_kb())
 
 
 @router.message(AddAcc.photos, F.photo)
@@ -1016,7 +1138,7 @@ async def add_photo(m: Message, state: FSMContext):
     if len(photos) < 10:
         photos.append(m.photo[-1].file_id)
     await state.update_data(photos=photos)
-    await m.answer(f"✅ Đã nhận {len(photos)} ảnh. Gửi thêm hoặc /done.")
+    await m.answer(f"✅ Đã nhận {len(photos)} ảnh. Gửi thêm hoặc /done.", reply_markup=nav_kb())
 
 
 @router.message(AddAcc.photos, Command("done"))
@@ -1164,7 +1286,8 @@ async def photo_edit_start(c: CallbackQuery, state: FSMContext):
         tip = f"🖼 Acc #{aid} đang có {len(base)} ảnh. Gửi thêm ảnh mới (tối đa 10 ảnh tổng)."
     else:
         tip = f"🔄 Thay toàn bộ ảnh acc #{aid}: ảnh cũ sẽ bị xoá, gửi bộ ảnh MỚI (tối đa 10)."
-    await c.message.answer(tip + "\nXong gõ /done • Huỷ gõ /huy\n<i>(Gõ /done ngay mà chưa gửi ảnh ở chế độ thay = xoá hết ảnh)</i>")
+    await c.message.answer(tip + "\nXong gõ /done • Huỷ gõ /huy\n<i>(Gõ /done ngay mà chưa gửi ảnh ở chế độ thay = xoá hết ảnh)</i>",
+                           reply_markup=nav_kb(f"am:{aid}:0", "⬅️ Quay lại acc"))
     await c.answer()
 
 
@@ -1175,10 +1298,10 @@ async def photo_edit_recv(m: Message, state: FSMContext):
     d = await state.get_data()
     photos = d.get("photos", [])
     if len(photos) >= 10:
-        return await m.answer("⚠️ Đã đủ 10 ảnh, gõ /done để lưu.")
+        return await m.answer("⚠️ Đã đủ 10 ảnh, gõ /done để lưu.", reply_markup=nav_kb(f"am:{d['aid']}:0", "⬅️ Quay lại acc"))
     photos.append(m.photo[-1].file_id)
     await state.update_data(photos=photos)
-    await m.answer(f"✅ Tổng {len(photos)} ảnh. Gửi thêm hoặc /done.")
+    await m.answer(f"✅ Tổng {len(photos)} ảnh. Gửi thêm hoặc /done.", reply_markup=nav_kb(f"am:{d['aid']}:0", "⬅️ Quay lại acc"))
 
 
 @router.message(EditAcc.photos, Command("done"))
@@ -1204,7 +1327,8 @@ async def id_edit_start(c: CallbackQuery, state: FSMContext):
     aid = int(c.data.split(":")[1])
     await state.set_state(EditAcc.newid)
     await state.update_data(aid=aid)
-    await c.message.answer(f"🔢 Nhập <b>mã số mới</b> cho acc #{aid} (số nguyên dương, chưa có acc nào dùng).\nHuỷ gõ /huy")
+    await c.message.answer(f"🔢 Nhập <b>mã số mới</b> cho acc #{aid} (số nguyên dương, chưa có acc nào dùng).\nHuỷ gõ /huy",
+        reply_markup=nav_kb("adm:list", "⬅️ Danh sách"))
     await c.answer()
 
 
@@ -1220,11 +1344,11 @@ async def id_edit_done(m: Message, state: FSMContext):
         return
     txt = (m.text or "").strip().lstrip("#")
     if not txt.isdigit() or int(txt) <= 0:
-        return await m.answer("❌ Mã phải là số nguyên dương. Nhập lại hoặc /huy.")
+        return await m.answer("❌ Mã phải là số nguyên dương. Nhập lại hoặc /huy.", reply_markup=nav_kb("adm:list", "⬅️ Danh sách"))
     d = await state.get_data()
     old, new = d["aid"], int(txt)
     if new != old and q1("SELECT id FROM accounts WHERE id=?", (new,)):
-        return await m.answer(f"❌ Mã #{new} đã có acc khác dùng. Nhập mã khác hoặc /huy.")
+        return await m.answer(f"❌ Mã #{new} đã có acc khác dùng. Nhập mã khác hoặc /huy.", reply_markup=nav_kb("adm:list", "⬅️ Danh sách"))
     await state.clear()
     if new != old:
         db.execute("UPDATE accounts SET id=? WHERE id=?", (new, old))
@@ -1236,7 +1360,7 @@ async def id_edit_done(m: Message, state: FSMContext):
 @router.callback_query(F.data == "adm:bc", admin_only)
 async def adm_bc(c: CallbackQuery, state: FSMContext):
     await state.set_state(BC.text)
-    await c.message.answer("📢 Nhập nội dung thông báo gửi TOÀN BỘ khách:")
+    await c.message.answer("📢 Nhập nội dung thông báo gửi TOÀN BỘ khách:", reply_markup=nav_kb())
     await c.answer()
 
 
@@ -1260,17 +1384,17 @@ async def bc_send(m: Message, state: FSMContext):
 @router.callback_query(F.data == "adm:pm", admin_only)
 async def adm_pm(c: CallbackQuery, state: FSMContext):
     await state.set_state(PM.uid)
-    await c.message.answer("👤 Nhập ID Telegram của khách:")
+    await c.message.answer("👤 Nhập ID Telegram của khách:", reply_markup=nav_kb())
     await c.answer()
 
 
 @router.message(PM.uid)
 async def pm_uid(m: Message, state: FSMContext):
     if not (m.text or "").strip().isdigit():
-        return await m.answer("❌ ID phải là số.")
+        return await m.answer("❌ ID phải là số.", reply_markup=nav_kb())
     await state.update_data(uid=int(m.text))
     await state.set_state(PM.text)
-    await m.answer("✍️ Nhập nội dung tin nhắn:")
+    await m.answer("✍️ Nhập nội dung tin nhắn:", reply_markup=nav_kb())
 
 
 @router.message(PM.text)
@@ -1282,6 +1406,60 @@ async def pm_text(m: Message, state: FSMContext):
         await m.answer("✅ Đã gửi.", reply_markup=admin_menu())
     except Exception as e:
         await m.answer(f"❌ Lỗi: {esc(e)}", reply_markup=admin_menu())
+
+
+# ----------------------------- TỰ SAO LƯU DATABASE VÀO TELEGRAM -----------------------------
+BACKUP_INTERVAL = 30                 # kiểm tra mỗi 30 giây, có thay đổi mới gửi bản sao lưu
+BACKUP_STATE = {"changes": None, "msg_id": None}
+
+
+async def do_auto_backup():
+    if not ADMIN_IDS:
+        return
+    target = min(ADMIN_IDS)
+    changes = db.total_changes
+    tmp = "autobackup_tmp.db"
+    dst = sqlite3.connect(tmp)
+    try:
+        db.backup(dst)
+    finally:
+        dst.close()
+    try:
+        msg = await BOT.send_document(
+            target, FSInputFile(tmp, filename="shop_autobackup.db"),
+            caption="💾 AUTO_BACKUP " + time.strftime("%d/%m %H:%M:%S"), disable_notification=True)
+        await BOT.pin_chat_message(target, msg.message_id, disable_notification=True)
+        old = BACKUP_STATE["msg_id"]
+        if old:
+            try:
+                await BOT.delete_message(target, old)
+            except Exception:
+                pass
+        BACKUP_STATE.update(changes=changes, msg_id=msg.message_id)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+async def auto_backup_loop():
+    BACKUP_STATE["changes"] = db.total_changes      # chỉ sao lưu khi có thay đổi MỚI sau lúc khởi động
+    while True:
+        await asyncio.sleep(BACKUP_INTERVAL)
+        try:
+            if db.total_changes != BACKUP_STATE["changes"]:
+                await do_auto_backup()
+        except Exception:
+            logging.exception("Tự sao lưu lỗi")
+
+
+async def final_backup():
+    """Sao lưu lần cuối khi bot tắt (redeploy / restart) để không mất thay đổi trong vài giây cuối."""
+    try:
+        if BACKUP_STATE["changes"] is not None and db.total_changes != BACKUP_STATE["changes"]:
+            await do_auto_backup()
+            logging.info("Đã sao lưu lần cuối trước khi tắt")
+    except Exception:
+        logging.exception("Sao lưu lần cuối lỗi")
 
 
 # ----------------------------- FLASK (web server cho Render + webhook SePay) -----------------------------
@@ -1360,7 +1538,7 @@ async def main():
     if not BOT_TOKEN or ":" not in BOT_TOKEN:
         raise SystemExit("LỖI: chưa có BOT_TOKEN hợp lệ. Vào Render > Environment điền BOT_TOKEN (lấy ở @BotFather).")
     if not ADMIN_IDS:
-        logging.warning("ADMIN_IDS đang trống -> không ai vào được /admin. Điền ID dạng số (lấy ở @userinfobot).")
+        logging.warning("ADMIN_IDS đang trống -> không ai vào được /admin và không thể tự sao lưu. Điền ID dạng số (lấy ở @userinfobot).")
     if not SEPAY_API_KEY:
         logging.warning("SEPAY_API_KEY đang trống -> webhook nạp tiền tự động sẽ bị từ chối.")
     MAIN_LOOP = asyncio.get_running_loop()
@@ -1368,18 +1546,34 @@ async def main():
     BOT.session.middleware(TrackMW())      # bật theo dõi tin nhắn để tự xoá
     dp = Dispatcher()
     dp.include_router(router)
+    if AUTO_BACKUP and RESTORE_STATUS != "error":
+        dp.shutdown.register(final_backup)   # sao lưu lần cuối khi bot tắt
 
     threading.Thread(target=run_flask, daemon=True).start()
-    if DB_TEMP:
+    if RESTORE_STATUS == "error":
         for ad in ADMIN_IDS:
             try:
                 await BOT.send_message(
-                    ad, "⚠️ <b>CẢNH BÁO</b>: chưa gắn Disk nên bot đang dùng database TẠM. "
-                        "Dữ liệu (acc, số dư) sẽ MẤT khi deploy lại. Hãy gắn Disk (mount /data) rồi deploy lại.")
+                    ad, "⚠️ <b>CẢNH BÁO</b>: không khôi phục được database từ bản sao lưu Telegram. "
+                        "Bot chạy với database RỖNG và <b>TẠM DỪNG tự sao lưu</b> để không ghi đè bản cũ. "
+                        "Hãy deploy lại (restart) để thử khôi phục lần nữa.")
             except Exception:
                 pass
+    elif AUTO_BACKUP:
+        asyncio.create_task(auto_backup_loop())
+        notice = {"restored": "💾 ✅ Đã <b>tự khôi phục</b> database từ bản sao lưu trên Telegram.",
+                  "none": "ℹ️ Chưa có bản sao lưu nào, đang dùng database mới."}.get(RESTORE_STATUS, "")
+        if DB_TEMP:
+            notice = ("⚠️ <b>CẢNH BÁO</b>: chưa gắn Disk nên bot dùng database tạm, nhưng đã bật "
+                      "<b>tự sao lưu vào Telegram</b> (file ghim trong chat này, đừng xoá/bỏ ghim).\n" + notice)
+        if notice:
+            for ad in ADMIN_IDS:
+                try:
+                    await BOT.send_message(ad, notice)
+                except Exception:
+                    pass
     await BOT.delete_webhook(drop_pending_updates=False)
-    logging.info("Bot + Flask đang chạy...")
+    logging.info("Bot + Flask đang chạy... (tự sao lưu: %s, khôi phục: %s)", AUTO_BACKUP, RESTORE_STATUS)
     await dp.start_polling(BOT)
 
 
