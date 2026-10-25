@@ -3,21 +3,26 @@ BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)
 - Khách: xem acc (bot gửi ảnh), mua bằng số dư, nạp tiền QR, xem lịch sử
 - Nạp tự động: SePay/Casso webhook -> cộng tiền theo nội dung "NAP <ID Telegram>"
 - Admin: danh sách khách & số dư, cộng/trừ tiền, thêm/xoá acc, broadcast, gửi tin riêng, thống kê
+- Tự động xoá tin rác của bot, bấm tác vụ mới thì tin cũ biến mất, bấm Nạp Tiền ra QR ngay
 Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress)
 """
 import asyncio, hmac, html, json, logging, os, re, sqlite3, threading, time
+import urllib.request
 from urllib.parse import quote
 
 from flask import Flask, jsonify, request
 from waitress import serve
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.middlewares.base import BaseRequestMiddleware
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, ErrorEvent, FSInputFile, InputMediaPhoto, Message
+from aiogram.methods import SendDocument, SendMediaGroup, SendMessage, SendPhoto
+from aiogram.types import (BufferedInputFile, CallbackQuery, ErrorEvent, FSInputFile,
+                           InputMediaPhoto, Message)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ============================ CẤU HÌNH ============================
@@ -199,6 +204,94 @@ async def reset_state_on_command(handler, event, data):
 router.message.outer_middleware(reset_state_on_command)
 
 
+# ----------------------------- TỰ ĐỘNG XOÁ TIN NHẮN -----------------------------
+TRACK = {}            # chat_id -> [message_id] các tin của bot đang hiển thị
+BG_TASKS = set()
+TTL_DEFAULT = 60      # tin rác (không có nút): xoá sau 60 giây
+TTL_MEDIA = 300       # ảnh acc: xoá sau 5 phút
+TTL_QR = 600          # ảnh QR: xoá sau 10 phút
+QR_PREFIX = "💳 <b>NẠP TIỀN TỰ ĐỘNG"
+# Tin bắt đầu bằng các ký tự này sẽ KHÔNG bị xoá (thông tin acc, thông báo quan trọng...)
+KEEP_PREFIXES = ("🎉", "✅ <b>NẠP TIỀN THÀNH CÔNG", "📢", "💬", "💰 Admin", "🛍", "💳 Khách", "⚠️ <b>CẢNH BÁO", "💾")
+
+
+def _msg_text(method):
+    t = getattr(method, "text", None) or getattr(method, "caption", None)
+    if not t and isinstance(method, SendMediaGroup):
+        for md in method.media:
+            if getattr(md, "caption", None):
+                return md.caption
+    return t or ""
+
+
+async def _delete_later(bot, chat_id, ids, ttl):
+    await asyncio.sleep(ttl)
+    for i in ids:
+        try:
+            await bot.delete_message(chat_id, i)
+        except Exception:
+            pass
+    cur = TRACK.get(chat_id)
+    if cur:
+        TRACK[chat_id] = [x for x in cur if x not in ids]
+
+
+class TrackMW(BaseRequestMiddleware):
+    """Ghi nhớ mọi tin bot gửi cho khách để tự xoá."""
+    async def __call__(self, make_request, bot, method):
+        result = await make_request(bot, method)
+        try:
+            if (isinstance(method, (SendMessage, SendPhoto, SendMediaGroup, SendDocument))
+                    and isinstance(method.chat_id, int) and method.chat_id > 0):
+                text = _msg_text(method)
+                if not text.startswith(KEEP_PREFIXES):
+                    msgs = result if isinstance(result, list) else [result]
+                    ids = [x.message_id for x in msgs]
+                    if isinstance(method, SendMediaGroup):
+                        ttl = TTL_MEDIA
+                    elif text.startswith(QR_PREFIX):
+                        ttl = TTL_QR
+                    elif getattr(method, "reply_markup", None):
+                        ttl = None          # tin có nút: chỉ xoá khi khách bấm tác vụ khác
+                    else:
+                        ttl = TTL_DEFAULT
+                    lst = TRACK.setdefault(method.chat_id, [])
+                    lst.extend(ids)
+                    del lst[:-40]
+                    if ttl:
+                        t = asyncio.create_task(_delete_later(bot, method.chat_id, ids, ttl))
+                        BG_TASKS.add(t)
+                        t.add_done_callback(BG_TASKS.discard)
+        except Exception:
+            logging.exception("TrackMW lỗi")
+        return result
+
+
+async def clean_on_callback(handler, event, data):
+    """Khách bấm nút -> xoá các tin cũ của bot phía trên (trừ tin quan trọng)."""
+    d = event.data or ""
+    # các nút này sửa trực tiếp (edit) tin hiện tại / cần giữ tin hiện tại nên không được xoá tin đó
+    edits_current = (d.startswith(("f:", "am:", "del:", "delc:", "pv:"))
+                     or bool(re.match(r"adm:list:\d", d)))
+    keep_id = event.message.message_id if (event.message and edits_current) else None
+    ids = TRACK.pop(event.from_user.id, [])
+    survivors = []
+    for i in ids:
+        if i == keep_id:
+            survivors.append(i)
+            continue
+        try:
+            await event.bot.delete_message(event.from_user.id, i)
+        except Exception:
+            pass
+    if survivors:
+        TRACK[event.from_user.id] = survivors
+    return await handler(event, data)
+
+
+router.callback_query.outer_middleware(clean_on_callback)
+
+
 @router.message(Command("huy"))
 async def cmd_cancel(m: Message, state: FSMContext):
     await state.clear()
@@ -300,10 +393,10 @@ GUIDES = {
                "✅ Nút có dấu tích là bộ lọc đang chọn."),
     "deposit": ("💳 Cách nạp tiền",
                 "💳 <b>CÁCH NẠP TIỀN (TỰ ĐỘNG 24/7)</b>\n\n"
-                "1️⃣ Bấm <b>💳 Nạp Tiền</b> ở menu chính\n"
-                "2️⃣ Chọn số tiền (hoặc <b>✍️ Nhập số khác</b>, tối thiểu 10.000đ)\n"
-                "3️⃣ Bot gửi <b>mã QR</b> MB Bank. Mở app ngân hàng quét mã là điền sẵn số tiền &amp; nội dung\n"
-                "4️⃣ Chuyển khoản xong chờ <b>1-2 phút</b>, bot tự cộng tiền và nhắn báo cho bạn\n\n"
+                "1️⃣ Bấm <b>💳 Nạp Tiền</b> ở menu chính, bot gửi ngay <b>mã QR</b> MB Bank\n"
+                "2️⃣ Mở app ngân hàng quét mã, nhập số tiền (tối thiểu 10.000đ). "
+                "Muốn QR có sẵn số tiền thì bấm nút chọn nhanh bên dưới QR (hoặc <b>✍️ Nhập số khác</b>)\n"
+                "3️⃣ Chuyển khoản xong chờ <b>1-2 phút</b>, bot tự cộng tiền và nhắn báo cho bạn\n\n"
                 f"🏦 MB Bank • STK <code>{BANK_ACCOUNT}</code> • {BANK_OWNER}\n"
                 "⚠️ <b>Giữ nguyên nội dung chuyển khoản</b> <code>NAP + ID Telegram của bạn</code> "
                 "(VD <code>NAP123456789</code>). Sai/mất nội dung thì bot không nhận ra bạn.\n"
@@ -371,7 +464,7 @@ async def cb_shop(c: CallbackQuery):
 
 
 # ---- Bộ lọc acc theo GIÁ + VIP ----
-USER_FILTER = {}   # uid -> (game, "min-max", vip_mask)  để nút "Quay lại" nhớ bộ lọc
+USER_FILTER = {}   # uid -> (game, "min-max", vip_mask, page)  để nút "Quay lại" nhớ bộ lọc
 
 
 class PriceIn(StatesGroup):
@@ -601,39 +694,65 @@ class Dep(StatesGroup):
     amount = State()
 
 
-def send_qr_text(uid, amount):
-    content = f"NAP{uid}"
-    url = (f"https://img.vietqr.io/image/{BANK_CODE}-{BANK_ACCOUNT}-compact2.png"
-           f"?amount={amount}&addInfo={content}&accountName={quote(BANK_OWNER)}")
-    cap = (f"💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n\n"
-           f"🏦 Ngân hàng: <b>MB Bank</b>\n"
-           f"🔢 STK: <code>{BANK_ACCOUNT}</code>\n"
-           f"👤 Chủ TK: <b>{BANK_OWNER}</b>\n"
-           f"💵 Số tiền: <b>{money(amount)}</b>\n"
-           f"📝 Nội dung CK: <code>{content}</code>\n\n"
-           f"⚠️ Nhập <b>đúng nội dung</b> để được cộng tiền tự động (1-2 phút).")
-    return url, cap
-
-
-async def send_qr(target: Message, uid: int, amount: int):
-    url, cap = send_qr_text(uid, amount)
-    try:
-        await target.answer_photo(url, caption=cap, reply_markup=back_main())
-    except Exception:
-        logging.exception("Không gửi được ảnh QR")
-        await target.answer(cap + "\n\n(Không tải được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
-                            reply_markup=back_main())
-
-
-@router.callback_query(F.data == "menu:deposit")
-async def cb_deposit(c: CallbackQuery):
+def deposit_kb():
     b = InlineKeyboardBuilder()
     for v in (20000, 50000, 100000, 200000, 500000):
         b.button(text=money(v), callback_data=f"dep:{v}")
     b.button(text="✍️ Nhập số khác", callback_data="dep:custom")
     b.button(text="🏠 Menu Chính", callback_data="menu:main")
     b.adjust(3, 2, 1, 1)
-    await c.message.answer("💳 Chọn số tiền muốn nạp:", reply_markup=b.as_markup())
+    return b.as_markup()
+
+
+def send_qr_text(uid, amount=0):
+    content = f"NAP{uid}"
+    url = (f"https://img.vietqr.io/image/{BANK_CODE}-{BANK_ACCOUNT}-compact2.png"
+           f"?addInfo={content}&accountName={quote(BANK_OWNER)}")
+    if amount:
+        url += f"&amount={amount}"
+    money_line = (f"💵 Số tiền: <b>{money(amount)}</b>" if amount
+                  else "💵 Số tiền: <b>tuỳ bạn nhập trong app</b> (tối thiểu 10.000đ)")
+    cap = (f"💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n\n"
+           f"🏦 Ngân hàng: <b>MB Bank</b>\n"
+           f"🔢 STK: <code>{BANK_ACCOUNT}</code>\n"
+           f"👤 Chủ TK: <b>{BANK_OWNER}</b>\n"
+           f"{money_line}\n"
+           f"📝 Nội dung CK: <code>{content}</code>\n\n"
+           f"⚠️ Nhập <b>đúng nội dung</b> để được cộng tiền tự động (1-2 phút).\n"
+           f"👇 Muốn QR có sẵn số tiền, bấm chọn bên dưới.")
+    return url, cap
+
+
+def _download(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return r.read()
+
+
+async def send_qr(target: Message, uid: int, amount: int = 0):
+    url, cap = send_qr_text(uid, amount)
+    kb = deposit_kb()
+    # Cách 1: bot tự tải ảnh QR rồi gửi lên (ổn định nhất)
+    try:
+        data = await asyncio.get_running_loop().run_in_executor(None, _download, url)
+        await target.answer_photo(BufferedInputFile(data, filename="qr.png"), caption=cap, reply_markup=kb)
+        return
+    except Exception:
+        logging.exception("Tải QR thất bại, thử gửi bằng link")
+    # Cách 2: để Telegram tự tải từ link
+    try:
+        await target.answer_photo(url, caption=cap, reply_markup=kb)
+        return
+    except Exception:
+        logging.exception("Không gửi được ảnh QR")
+    # Cách 3: gửi chữ
+    await target.answer(cap + "\n\n(Không tải được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
+                        reply_markup=kb)
+
+
+@router.callback_query(F.data == "menu:deposit")
+async def cb_deposit(c: CallbackQuery):
+    await send_qr(c.message, c.from_user.id, 0)     # bấm Nạp Tiền là ra QR luôn
     await c.answer()
 
 
@@ -739,6 +858,8 @@ ADMIN_GUIDE = (
     "SePay gọi webhook → bot tự cộng tiền và báo cho khách + admin.\n"
     "Nạp sai nội dung: tự cộng thủ công bằng <code>/cong ID SỐ_TIỀN</code> sau khi kiểm tra bill.\n\n"
     "<b>💾 Sao lưu</b>: gõ <code>/backup</code> để nhận file database, nên làm mỗi ngày.\n\n"
+    "<b>🧹 Tự xoá tin</b>: tin rác của bot tự xoá sau 1 phút; bấm tác vụ khác thì tin cũ biến mất. "
+    "Tin acc mua thành công, báo nạp tiền, broadcast, backup không bị xoá.\n\n"
     "<b>Lệnh hữu ích</b>: /admin mở panel • /huy huỷ thao tác đang làm • /done kết thúc gửi ảnh."
 )
 
@@ -1244,6 +1365,7 @@ async def main():
         logging.warning("SEPAY_API_KEY đang trống -> webhook nạp tiền tự động sẽ bị từ chối.")
     MAIN_LOOP = asyncio.get_running_loop()
     BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    BOT.session.middleware(TrackMW())      # bật theo dõi tin nhắn để tự xoá
     dp = Dispatcher()
     dp.include_router(router)
 
