@@ -1,3 +1,4 @@
-aiogram>=3.4,<4
-flask>=3.0
-waitress>=3.0
+aiogram>=3.4
+flask
+waitress
+segno
