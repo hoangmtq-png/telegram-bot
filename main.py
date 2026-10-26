@@ -3,6 +3,7 @@ BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)  -  BẢN NÂNG C
 - Menu chính hiện đại: 3 game nằm NGAY TRÊN MENU (bấm là vào danh sách acc)
 - Khách: xem acc (bot gửi ảnh), mua bằng số dư, nạp tiền QR (theo số tiền chọn), xem lịch sử
 - Nạp tự động: SePay webhook -> cộng tiền theo nội dung "NAP<ID Telegram>"
+- QR nạp tiền dạng thẻ VietQR đẹp (logo VietQR + NAPAS 247 + ngân hàng, có sẵn số tiền & nội dung)
 - Admin: danh sách khách & số dư, cộng/trừ tiền, thêm/xoá acc, broadcast, gửi tin riêng, thống kê
 - Tự xoá tin rác, bấm tác vụ mới thì tin cũ biến mất
 - TỰ SAO LƯU database vào Telegram (ghim trong chat admin) và TỰ KHÔI PHỤC khi khởi động
@@ -74,6 +75,7 @@ PRICE_PRESETS = [
 ]
 MIN_DEPOSIT = 10000
 MAX_DEPOSIT = 500_000_000
+DEPOSIT_PRESETS = (10000, 50000, 100000, 200000, 500000, 1000000)
 # ==================================================================
 
 logging.basicConfig(level=logging.INFO)
@@ -293,7 +295,7 @@ BG_TASKS = set()
 TTL_DEFAULT = 60
 TTL_MEDIA = 300
 TTL_QR = 600
-QR_PREFIX = "💳 <b>NẠP TIỀN TỰ ĐỘNG"
+QR_PREFIX = "💳 <b>THÔNG TIN CHUYỂN KHOẢN NẠP TIỀN"
 KEEP_PREFIXES = ("🎉", "✅ <b>NẠP TIỀN THÀNH CÔNG", "📢", "💬", "💰 Admin", "🛍", "💳 Khách", "⚠️ <b>CẢNH BÁO", "💾")
 
 
@@ -363,6 +365,9 @@ async def clean_on_callback(handler, event, data):
     edits_current = (d.startswith(("f:", "am:", "del:", "delc:", "pv:", "st:", "stc:"))
                      or bool(re.match(r"adm:list:\d", d)))
     keep_id = event.message.message_id if (event.message and edits_current) else None
+    # Bấm "Đã chuyển khoản" / "Thông tin CK" thì giữ nguyên thẻ QR để khách còn quét
+    if d in ("dep:paid", "dep:info") and event.message:
+        keep_id = event.message.message_id
     ids = TRACK.pop(event.from_user.id, [])
     survivors = []
     for i in ids:
@@ -520,9 +525,9 @@ GUIDES = {
                "✅ Nút có dấu tích là bộ lọc đang chọn."),
     "deposit": ("💳 Cách nạp tiền",
                 "💳 <b>CÁCH NẠP TIỀN (TỰ ĐỘNG 24/7)</b>\n\n"
-                "1️⃣ Bấm <b>💳 Nạp Tiền Auto</b> ở menu chính, bot gửi ngay <b>mã QR</b>\n"
-                "2️⃣ Bấm nút số tiền (20K, 50K, 100K...) hoặc <b>✍️ Nhập số khác</b> "
-                "→ bot tạo QR <b>có sẵn số tiền + nội dung</b>, bạn chỉ việc quét và xác nhận\n"
+                "1️⃣ Bấm <b>💳 Nạp Tiền Auto</b> ở menu chính\n"
+                "2️⃣ Bấm nút số tiền (10K, 50K, 100K...) hoặc <b>⌨️ Nhập Số Tiền Tùy Ý</b> "
+                "→ bot tạo <b>thẻ QR VietQR có sẵn số tiền + nội dung</b>, bạn chỉ việc quét và xác nhận\n"
                 "3️⃣ Chuyển khoản xong chờ <b>1-2 phút</b>, bot tự cộng tiền và nhắn báo cho bạn\n\n"
                 f"🏦 MB Bank • STK <code>{BANK_ACCOUNT}</code> • {BANK_OWNER}\n"
                 "⚠️ <b>Giữ nguyên nội dung chuyển khoản</b> <code>NAP + ID Telegram của bạn</code> "
@@ -815,28 +820,46 @@ class Dep(StatesGroup):
     amount = State()
 
 
+def deposit_text() -> str:
+    return ("💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n"
+            "══════════════════════\n\n"
+            "👇 <i>Chọn nhanh mệnh giá nạp bên dưới:</i>")
+
+
 def deposit_kb():
+    """Menu chọn mệnh giá (giống ảnh mẫu): 6 mệnh giá + nhập tuỳ ý + về menu."""
     b = InlineKeyboardBuilder()
-    for v in (20000, 50000, 100000, 200000, 500000):
-        b.button(text=money(v), callback_data=f"dep:{v}")
-    b.button(text="✍️ Nhập số khác", callback_data="dep:custom")
-    b.button(text="🏠 Menu Chính", callback_data="menu:main")
-    b.adjust(3, 2, 1, 1)
+    for v in DEPOSIT_PRESETS:
+        b.button(text=f"💵 {money(v).replace('đ', ' đ')}", callback_data=f"dep:{v}")
+    b.button(text="⌨️ Nhập Số Tiền Tùy Ý", callback_data="dep:custom")
+    b.button(text="🏠 Trở Về Menu", callback_data="menu:main")
+    b.adjust(3, 3, 1, 1)
+    return b.as_markup()
+
+
+def qr_kb():
+    """Nút dưới thẻ QR."""
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ Đã Chuyển Khoản", callback_data="dep:paid")
+    b.button(text="🏦 Đổi Số Tài Khoản", callback_data="dep:info")
+    b.button(text="🔄 Chọn Lại Mệnh Giá", callback_data="menu:deposit")
+    b.adjust(1)
     return b.as_markup()
 
 
 def qr_caption(uid, amount=0):
     content = f"NAP{uid}"
-    money_line = (f"💵 Số tiền: <b>{money(amount)}</b> (đã điền sẵn trong QR)" if amount
-                  else "💵 Số tiền: <b>tuỳ bạn nhập trong app</b> (tối thiểu 10.000đ)")
-    return (f"💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n\n"
-            f"🏦 Ngân hàng: <b>MB Bank</b>\n"
+    money_line = (f"💵 Số tiền: <code>{amount:,}".replace(",", ",") + " VNĐ</code>\n" if amount
+                  else "💵 Số tiền: <b>tuỳ bạn nhập trong app</b> (tối thiểu 10.000đ)\n")
+    return (f"💳 <b>THÔNG TIN CHUYỂN KHOẢN NẠP TIỀN</b>\n"
+            f"══════════════════════\n"
+            f"🏦 Ngân hàng: <code>MBBank</code>\n"
             f"🔢 STK: <code>{BANK_ACCOUNT}</code>\n"
-            f"👤 Chủ TK: <b>{BANK_OWNER}</b>\n"
-            f"{money_line}\n"
-            f"📝 Nội dung CK: <code>{content}</code>\n\n"
-            f"⚠️ Giữ <b>đúng nội dung</b> để được cộng tiền tự động (1-2 phút).\n"
-            f"👇 Muốn QR có sẵn số tiền khác, bấm chọn bên dưới.")
+            f"👤 Chủ TK: <code>{BANK_OWNER}</code>\n"
+            f"{money_line}"
+            f"📝 Nội dung ck (BẮT BUỘC): <code>{content}</code>\n\n"
+            f"⚠️ <b>LƯU Ý:</b> Vui lòng chuyển chính xác nội dung ID <code>{content[3:]}</code> "
+            f"để hệ thống cộng tiền tự động!")
 
 
 def _tlv(tag: str, val: str) -> str:
@@ -866,10 +889,11 @@ def vietqr_payload(amount: int, content: str) -> str:
 
 
 def make_qr_png(amount: int, content: str) -> bytes:
+    """QR tự vẽ (dự phòng khi không tải được thẻ VietQR). Viền trắng dày cho dễ quét."""
     import segno
     buf = io.BytesIO()
     segno.make(vietqr_payload(amount, content), error="m", micro=False).save(
-        buf, kind="png", scale=8, border=4, dark="black", light="white")
+        buf, kind="png", scale=10, border=5, dark="black", light="white")
     return buf.getvalue()
 
 
@@ -882,39 +906,57 @@ def _download(url: str) -> bytes:
     return data
 
 
+def download_vietqr_card(amount: int, content: str) -> bytes:
+    """Tải thẻ QR đẹp (logo VietQR + NAPAS 247 + ngân hàng + tên + STK + số tiền) từ img.vietqr.io.
+    Thử template compact2 -> compact, mỗi cái thử lại 2 lần."""
+    last = None
+    for tpl in ("compact2", "compact"):
+        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-{tpl}.png"
+               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
+        if amount:
+            url += f"&amount={int(amount)}"
+        for _ in range(2):
+            try:
+                return _download(url)
+            except Exception as e:
+                last = e
+                time.sleep(1)
+    raise last or RuntimeError("không tải được thẻ VietQR")
+
+
 async def send_qr(target: Message, uid: int, amount: int = 0):
     cap = qr_caption(uid, amount)
-    kb = deposit_kb()
+    kb = qr_kb()
     loop = asyncio.get_running_loop()
     content = f"NAP{uid}"
-    # Cách 1: tự vẽ QR VietQR trên server (nhanh, không phụ thuộc web ngoài)
+    # Cách 1 (ưu tiên): thẻ VietQR đẹp tải từ img.vietqr.io rồi gửi lên
+    try:
+        data = await loop.run_in_executor(None, download_vietqr_card, amount, content)
+        await target.answer_photo(BufferedInputFile(data, filename=f"vietqr_{amount}.png"), caption=cap, reply_markup=kb)
+        return
+    except Exception:
+        logging.exception("Tải thẻ VietQR thất bại, chuyển sang tự vẽ QR")
+    # Cách 2: tự vẽ QR VietQR trên server (không phụ thuộc web ngoài)
     try:
         data = await loop.run_in_executor(None, make_qr_png, amount, content)
         await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
-        logging.exception("Tự vẽ QR thất bại (đã cài segno chưa?), thử tải từ vietqr.io")
-    # Cách 2: tải ảnh từ img.vietqr.io (có amount) rồi gửi lên
-    try:
-        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-compact2.png"
-               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
-        if amount:
-            url += f"&amount={int(amount)}"
-        data = await loop.run_in_executor(None, _download, url)
-        await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
-        return
-    except Exception:
-        logging.exception("Tải QR từ vietqr.io thất bại")
+        logging.exception("Tự vẽ QR thất bại (đã cài segno chưa?)")
     # Cách 3: gửi chữ
     await target.answer(cap + "\n\n(Không tạo được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
                         reply_markup=kb)
+
+
+async def show_deposit_menu(target: Message):
+    await target.answer(deposit_text(), reply_markup=deposit_kb())
 
 
 @router.callback_query(F.data == "menu:deposit")
 async def cb_deposit(c: CallbackQuery, state: FSMContext):
     await state.clear()
     ensure_user(c.from_user)
-    await send_qr(c.message, c.from_user.id, 0)
+    await show_deposit_menu(c.message)
     await c.answer()
 
 
@@ -922,7 +964,7 @@ async def cb_deposit(c: CallbackQuery, state: FSMContext):
 async def cmd_nap(m: Message, state: FSMContext):
     await state.clear()
     ensure_user(m.from_user)
-    await send_qr(m, m.from_user.id, 0)
+    await show_deposit_menu(m)
 
 
 @router.callback_query(F.data.startswith("dep:"))
@@ -934,9 +976,26 @@ async def cb_dep(c: CallbackQuery, state: FSMContext):
         await c.message.answer(
             f"✍️ Nhập số tiền muốn nạp (tối thiểu {money(MIN_DEPOSIT)}).\nVD: <code>75000</code> hoặc <code>75k</code> hoặc <code>1tr</code>",
             reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
+    elif v == "paid":
+        await c.answer("✅ Hệ thống sẽ tự cộng tiền sau 1-2 phút kể từ khi chuyển khoản thành công và nhắn báo cho bạn. "
+                       "Quá 10 phút chưa thấy, hãy liên hệ Hỗ Trợ kèm ảnh bill.", show_alert=True)
+        return
+    elif v == "info":
+        await c.message.answer(
+            f"🏦 <b>THÔNG TIN CHUYỂN KHOẢN THỦ CÔNG</b>\n\n"
+            f"Ngân hàng: <b>MB Bank</b>\n"
+            f"STK: <code>{BANK_ACCOUNT}</code>\n"
+            f"Chủ TK: <code>{BANK_OWNER}</code>\n"
+            f"Nội dung: <code>NAP{c.from_user.id}</code>\n\n"
+            f"👆 Chạm vào số để sao chép. Nhớ giữ <b>đúng nội dung</b> để được cộng tiền tự động.",
+            reply_markup=nav_kb("menu:deposit", "⬅️ Chọn lại mệnh giá"))
     else:
         await state.clear()
-        await send_qr(c.message, c.from_user.id, int(v))
+        try:
+            amount = int(v)
+        except ValueError:
+            return await c.answer()
+        await send_qr(c.message, c.from_user.id, amount)
     await c.answer()
 
 
