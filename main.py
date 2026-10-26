@@ -452,7 +452,8 @@ async def cb_support(c: CallbackQuery):
 
 @router.callback_query(F.data == "menu:history")
 async def cb_history(c: CallbackQuery):
-    rows = q("SELECT * FROM tx WHERE user_id=? ORDER BY id DESC LIMIT 15", (c.from_user.id,))
+    uid = c.from_user.id
+    rows = q("SELECT * FROM tx WHERE user_id=? ORDER BY id DESC LIMIT 15", (uid,))
     if not rows:
         text = "📜 Bạn chưa có giao dịch nào."
     else:
@@ -462,7 +463,38 @@ async def cb_history(c: CallbackQuery):
             when = time.strftime("%d/%m %H:%M", time.localtime(r["created"]))
             lines.append(f"{when} | {sign}{money(r['amount'])} | {esc(r['note'] or r['type'])}")
         text = "📜 <b>15 GIAO DỊCH GẦN NHẤT</b>\n\n" + "\n".join(lines)
-    await c.message.answer(text, reply_markup=back_main())
+    bought = q("SELECT id,game,title,price FROM accounts WHERE buyer=? AND sold=1 ORDER BY sold_at DESC, id DESC LIMIT 20", (uid,))
+    b = InlineKeyboardBuilder()
+    if bought:
+        text += "\n\n🛍 <b>ACC ĐÃ MUA</b> - bấm vào acc để xem lại tài khoản &amp; mật khẩu:"
+        for r in bought:
+            b.button(text=f"🔐 #{r['id']} • {GAMES.get(r['game'], '')[:2]} {r['title'][:20]} • {money(r['price'])}",
+                     callback_data=f"myacc:{r['id']}")
+    b.button(text="🏠 Menu Chính", callback_data="menu:main")
+    b.adjust(1)
+    await c.message.answer(text, reply_markup=b.as_markup())
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("myacc:"))
+async def cb_my_acc(c: CallbackQuery):
+    aid = int(c.data.split(":")[1])
+    a = q1("SELECT * FROM accounts WHERE id=? AND buyer=? AND sold=1", (aid, c.from_user.id))
+    if not a:
+        return await c.answer("Bạn không sở hữu acc này!", show_alert=True)
+    when = time.strftime("%d/%m/%Y %H:%M", time.localtime(a["sold_at"] or 0))
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ Quay lại lịch sử", callback_data="menu:history")
+    b.button(text="🏠 Menu Chính", callback_data="menu:main")
+    b.adjust(1)
+    await c.message.answer(
+        f"🔐 <b>THÔNG TIN ACC #{a['id']}</b>\n"
+        f"{GAMES.get(a['game'], a['game'])} • VIP {a['vip'] or 0}\n"
+        f"📝 {esc(a['title'])}\n"
+        f"💵 Đã mua: <b>{money(a['price'])}</b> lúc {when}\n\n"
+        f"👤 Tài khoản | mật khẩu:\n<code>{esc(a['login'])}</code>\n\n"
+        f"⚠️ Nên đổi mật khẩu &amp; liên kết ngay. Có vấn đề hãy liên hệ Hỗ Trợ kèm mã #{a['id']}.",
+        reply_markup=b.as_markup())
     await c.answer()
 
 
@@ -499,7 +531,7 @@ GUIDES = {
     "account": ("👤 Số dư & lịch sử",
                 "👤 <b>XEM SỐ DƯ &amp; LỊCH SỬ</b>\n\n"
                 "• <b>👤 Tài Khoản</b>: xem ID Telegram và số dư hiện tại\n"
-                "• <b>📜 Lịch Sử</b>: xem 15 giao dịch gần nhất\n\n"
+                "• <b>📜 Lịch Sử</b>: xem 15 giao dịch gần nhất và <b>xem lại tài khoản, mật khẩu các acc đã mua</b>\n\n"
                 "🆔 ID Telegram của bạn cũng chính là mã dùng trong nội dung chuyển khoản <code>NAP...</code>."),
     "after": ("🔐 Sau khi mua acc",
               "🔐 <b>SAU KHI MUA ACC</b>\n\n"
