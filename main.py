@@ -3,13 +3,13 @@ BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)  -  BẢN NÂNG C
 - Menu chính hiện đại: 3 game nằm NGAY TRÊN MENU (bấm là vào danh sách acc)
 - Khách: xem acc (bot gửi ảnh), mua bằng số dư, nạp tiền QR (theo số tiền chọn), xem lịch sử
 - Nạp tự động: SePay webhook -> cộng tiền theo nội dung "NAP<ID Telegram>"
-- QR nạp tiền dạng thẻ VietQR đẹp (logo VietQR + NAPAS 247 + ngân hàng, có sẵn số tiền & nội dung)
+- QR nạp tiền tạo bằng API chính hãng VietQR (api.vietqr.io), có sẵn số tiền & nội dung
 - Admin: danh sách khách & số dư, cộng/trừ tiền, thêm/xoá acc, broadcast, gửi tin riêng, thống kê
 - Tự xoá tin rác, bấm tác vụ mới thì tin cũ biến mất
 - TỰ SAO LƯU database vào Telegram (ghim trong chat admin) và TỰ KHÔI PHỤC khi khởi động
-Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress, segno, pillow)
+Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress)
 """
-import asyncio, hmac, html, io, json, logging, os, re, sqlite3, threading, time
+import asyncio, base64, hmac, html, json, logging, os, re, sqlite3, threading, time
 import urllib.request
 from urllib.parse import quote
 
@@ -49,6 +49,12 @@ BANK_ACCOUNT = "3030777777"
 BANK_OWNER = "NGUYEN TIEN DAT"
 SHOP_NAME = "SHOP ACC GAME"
 SEPAY_API_KEY = os.getenv("SEPAY_API_KEY", "")
+# VietQR API chính hãng - đăng ký key miễn phí tại https://my.vietqr.io
+VIETQR_CLIENT_ID = os.getenv("VIETQR_CLIENT_ID", "").strip()
+VIETQR_API_KEY = os.getenv("VIETQR_API_KEY", "").strip()
+VIETQR_TEMPLATE = os.getenv("VIETQR_TEMPLATE", "compact2")   # compact2 | compact | qr_only | print
+VIETQR_API_URL = "https://api.vietqr.io/v2/generate"
+VIETQR_IMG_URL = "https://img.vietqr.io/image"
 WEBHOOK_PORT = int(os.getenv("PORT", "8080"))
 SUPPORT = os.getenv("SUPPORT", "@your_username")
 DB_FILE = os.getenv("DB_FILE", "shop.db")   # Render Disk: đặt DB_FILE=/data/shop.db
@@ -815,7 +821,7 @@ async def cb_buy(c: CallbackQuery):
     await c.answer("Thành công!")
 
 
-# ---- Nạp tiền (QR theo số tiền khách chọn - ĐÃ TỐI ƯU VÀ GỌN GÀNG) ----
+# ---- Nạp tiền (QR theo số tiền khách chọn) ----
 class Dep(StatesGroup):
     amount = State()
 
@@ -827,6 +833,7 @@ def deposit_text() -> str:
 
 
 def deposit_kb():
+    """Menu chọn mệnh giá (giống ảnh mẫu): 6 mệnh giá + nhập tuỳ ý + về menu."""
     b = InlineKeyboardBuilder()
     for v in DEPOSIT_PRESETS:
         b.button(text=f"💵 {money(v).replace('đ', ' đ')}", callback_data=f"dep:{v}")
@@ -837,6 +844,7 @@ def deposit_kb():
 
 
 def qr_kb():
+    """Nút dưới thẻ QR."""
     b = InlineKeyboardBuilder()
     b.button(text="✅ Đã Chuyển Khoản", callback_data="dep:paid")
     b.button(text="🏦 Đổi Số Tài Khoản", callback_data="dep:info")
@@ -860,85 +868,65 @@ def qr_caption(uid, amount=0):
             f"để hệ thống cộng tiền tự động!")
 
 
-def _tlv(tag: str, val: str) -> str:
-    return f"{tag}{len(val):02d}{val}"
+# ----------------------------- VIETQR API -----------------------------
+def _http(req: urllib.request.Request, timeout: int = 10) -> bytes:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
 
 
-def _crc16(data: str) -> int:
-    crc = 0xFFFF
-    for byte in data.encode():
-        crc ^= byte << 8
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
-            crc &= 0xFFFF
-    return crc
-
-
-def vietqr_payload(amount: int, content: str) -> str:
-    """Chuỗi VietQR chuẩn NAPAS 247."""
-    acc = _tlv("00", BANK_BIN) + _tlv("01", BANK_ACCOUNT)
-    merchant = _tlv("00", "A000000727") + _tlv("01", acc) + _tlv("02", "QRIBFTTA")
-    p = _tlv("00", "01") + _tlv("01", "12" if amount else "11") + _tlv("38", merchant) + _tlv("53", "704")
+def vietqr_api_image(amount: int, content: str) -> bytes:
+    """API chính hãng VietQR: POST https://api.vietqr.io/v2/generate -> ảnh QR (PNG)."""
+    payload = {
+        "accountNo": BANK_ACCOUNT,
+        "accountName": BANK_OWNER,
+        "acqId": BANK_BIN,
+        "addInfo": content,
+        "template": VIETQR_TEMPLATE,
+    }
     if amount:
-        p += _tlv("54", str(int(amount)))
-    p += _tlv("58", "VN") + _tlv("62", _tlv("08", content))
-    p += "6304"
-    return p + f"{_crc16(p):04X}"
+        payload["amount"] = int(amount)
+    req = urllib.request.Request(
+        VIETQR_API_URL, data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json",
+                 "x-client-id": VIETQR_CLIENT_ID, "x-api-key": VIETQR_API_KEY})
+    res = json.loads(_http(req))
+    if res.get("code") != "00":
+        raise RuntimeError(f"VietQR API lỗi {res.get('code')}: {res.get('desc')}")
+    return base64.b64decode(res["data"]["qrDataURL"].split(",", 1)[-1])
 
 
-def download_vietqr_card(amount: int, content: str) -> bytes:
-    """Tải thẻ QR chuẩn chính chủ VietQR từ img.vietqr.io."""
-    for tpl in ("compact2", "compact"):
-        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-{tpl}.png"
-               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
-        if amount:
-            url += f"&amount={int(amount)}"
+def vietqr_quicklink_image(amount: int, content: str) -> bytes:
+    """Quick Link của VietQR (không cần API key) - dùng khi chưa cấu hình key hoặc API gặp sự cố."""
+    url = (f"{VIETQR_IMG_URL}/{BANK_BIN}-{BANK_ACCOUNT}-{VIETQR_TEMPLATE}.png"
+           f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
+    if amount:
+        url += f"&amount={int(amount)}"
+    data = _http(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}))
+    if not data.startswith(b"\x89PNG"):
+        raise ValueError("VietQR không trả về ảnh PNG")
+    return data
+
+
+def get_vietqr_image(amount: int, content: str) -> bytes:
+    """Ưu tiên API chính hãng (có key); lỗi/không có key thì dùng Quick Link."""
+    if VIETQR_CLIENT_ID and VIETQR_API_KEY:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = r.read()
-            if data.startswith(b"\x89PNG"):
-                return data
+            return vietqr_api_image(amount, content)
         except Exception:
-            continue
-    raise RuntimeError("không tải được thẻ VietQR")
-
-
-def make_qr_png(amount: int, content: str) -> bytes:
-    """Tạo mã QR đơn giản bằng segno làm phương án dự phòng."""
-    import segno
-    buf = io.BytesIO()
-    segno.make(vietqr_payload(amount, content), error="m", micro=False).save(
-        buf, kind="png", scale=10, border=5, dark="black", light="white")
-    return buf.getvalue()
+            logging.exception("VietQR API thất bại, chuyển sang Quick Link")
+    return vietqr_quicklink_image(amount, content)
 
 
 async def send_qr(target: Message, uid: int, amount: int = 0):
-    """Hàm xử lý tạo và gửi mã QR nạp tiền tối ưu gọn gàng và ổn định."""
-    cap = qr_caption(uid, amount)
-    kb = qr_kb()
-    loop = asyncio.get_running_loop()
-    content = f"NAP{uid}"
-
-    # 1. Thử tải thẻ VietQR đầy đủ thông tin từ img.vietqr.io
+    cap, kb = qr_caption(uid, amount), qr_kb()
     try:
-        data = await loop.run_in_executor(None, download_vietqr_card, amount, content)
-        await target.answer_photo(BufferedInputFile(data, filename=f"vietqr_{amount}.png"), caption=cap, reply_markup=kb)
-        return
+        data = await asyncio.get_running_loop().run_in_executor(None, get_vietqr_image, amount, f"NAP{uid}")
+        await target.answer_photo(BufferedInputFile(data, filename=f"vietqr_{amount}.png"),
+                                  caption=cap, reply_markup=kb)
     except Exception:
-        logging.exception("Tải thẻ VietQR thất bại, chuyển sang QR chuẩn segno")
-
-    # 2. Phương án dự phòng: Tạo ảnh QR chuẩn bằng segno
-    try:
-        data = await loop.run_in_executor(None, make_qr_png, amount, content)
-        await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
-        return
-    except Exception:
-        logging.exception("Tạo QR bằng segno thất bại")
-
-    # 3. Fallback cuối cùng nếu lỗi hình ảnh
-    await target.answer(cap + "\n\n(Không tạo được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
-                        reply_markup=kb)
+        logging.exception("Không tạo được mã VietQR")
+        await target.answer(cap + "\n\n(Không tạo được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
+                            reply_markup=kb)
 
 
 async def show_deposit_menu(target: Message):
@@ -1692,6 +1680,8 @@ async def main():
         logging.warning("ADMIN_IDS đang trống -> không ai vào được /admin và không thể tự sao lưu.")
     if not SEPAY_API_KEY:
         logging.warning("SEPAY_API_KEY đang trống -> webhook nạp tiền tự động sẽ bị từ chối.")
+    if not (VIETQR_CLIENT_ID and VIETQR_API_KEY):
+        logging.warning("Chưa đặt VIETQR_CLIENT_ID / VIETQR_API_KEY -> dùng VietQR Quick Link (không cần key).")
     MAIN_LOOP = asyncio.get_running_loop()
     BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     BOT.session.middleware(TrackMW())
