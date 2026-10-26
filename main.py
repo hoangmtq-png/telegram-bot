@@ -815,7 +815,7 @@ async def cb_buy(c: CallbackQuery):
     await c.answer("Thành công!")
 
 
-# ---- Nạp tiền (QR theo số tiền khách chọn) ----
+# ---- Nạp tiền (QR theo số tiền khách chọn - ĐÃ TỐI ƯU VÀ GỌN GÀNG) ----
 class Dep(StatesGroup):
     amount = State()
 
@@ -827,7 +827,6 @@ def deposit_text() -> str:
 
 
 def deposit_kb():
-    """Menu chọn mệnh giá (giống ảnh mẫu): 6 mệnh giá + nhập tuỳ ý + về menu."""
     b = InlineKeyboardBuilder()
     for v in DEPOSIT_PRESETS:
         b.button(text=f"💵 {money(v).replace('đ', ' đ')}", callback_data=f"dep:{v}")
@@ -838,7 +837,6 @@ def deposit_kb():
 
 
 def qr_kb():
-    """Nút dưới thẻ QR."""
     b = InlineKeyboardBuilder()
     b.button(text="✅ Đã Chuyển Khoản", callback_data="dep:paid")
     b.button(text="🏦 Đổi Số Tài Khoản", callback_data="dep:info")
@@ -877,7 +875,7 @@ def _crc16(data: str) -> int:
 
 
 def vietqr_payload(amount: int, content: str) -> str:
-    """Chuỗi VietQR chuẩn NAPAS 247 (có số tiền + nội dung chuyển khoản)."""
+    """Chuỗi VietQR chuẩn NAPAS 247."""
     acc = _tlv("00", BANK_BIN) + _tlv("01", BANK_ACCOUNT)
     merchant = _tlv("00", "A000000727") + _tlv("01", acc) + _tlv("02", "QRIBFTTA")
     p = _tlv("00", "01") + _tlv("01", "12" if amount else "11") + _tlv("38", merchant) + _tlv("53", "704")
@@ -888,8 +886,26 @@ def vietqr_payload(amount: int, content: str) -> str:
     return p + f"{_crc16(p):04X}"
 
 
+def download_vietqr_card(amount: int, content: str) -> bytes:
+    """Tải thẻ QR chuẩn chính chủ VietQR từ img.vietqr.io."""
+    for tpl in ("compact2", "compact"):
+        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-{tpl}.png"
+               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
+        if amount:
+            url += f"&amount={int(amount)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = r.read()
+            if data.startswith(b"\x89PNG"):
+                return data
+        except Exception:
+            continue
+    raise RuntimeError("không tải được thẻ VietQR")
+
+
 def make_qr_png(amount: int, content: str) -> bytes:
-    """QR tự vẽ (dự phòng khi không tải được thẻ VietQR). Viền trắng dày cho dễ quét."""
+    """Tạo mã QR đơn giản bằng segno làm phương án dự phòng."""
     import segno
     buf = io.BytesIO()
     segno.make(vietqr_payload(amount, content), error="m", micro=False).save(
@@ -897,154 +913,30 @@ def make_qr_png(amount: int, content: str) -> bytes:
     return buf.getvalue()
 
 
-def _download(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=8) as r:
-        data = r.read()
-    if not data.startswith(b"\x89PNG"):
-        raise ValueError("vietqr.io không trả về ảnh PNG")
-    return data
-
-
-def download_vietqr_card(amount: int, content: str) -> bytes:
-    """Tải thẻ QR chính chủ (logo VietQR + NAPAS 247 + ngân hàng + tên + STK + số tiền) từ img.vietqr.io."""
-    last = None
-    for tpl in ("compact2", "compact"):
-        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-{tpl}.png"
-               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
-        if amount:
-            url += f"&amount={int(amount)}"
-        try:
-            return _download(url)
-        except Exception as e:
-            last = e
-    raise last or RuntimeError("không tải được thẻ VietQR")
-
-
-# ---- Tự vẽ thẻ VietQR (giống mẫu) bằng Pillow, không phụ thuộc web ngoài ----
-_FONT_DIRS = ("/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu/",
-              "/usr/share/fonts/truetype/liberation/", "/usr/share/fonts/TTF/",
-              "/usr/share/fonts/truetype/freefont/", "")
-
-
-def _font(size: int, bold: bool = False):
-    """Trả về (font, có_hỗ_trợ_tiếng_Việt)."""
-    from PIL import ImageFont
-    names = (("DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "FreeSansBold.ttf") if bold
-             else ("DejaVuSans.ttf", "LiberationSans-Regular.ttf", "FreeSans.ttf"))
-    for d in _FONT_DIRS:
-        for n in names:
-            try:
-                return ImageFont.truetype(d + n, size), True
-            except Exception:
-                continue
-    try:
-        return ImageFont.load_default(size), False
-    except TypeError:
-        return ImageFont.load_default(), False
-
-
-def make_card_png(amount: int, content: str) -> bytes:
-    """Thẻ QR dạng VietQR: logo VietQR, khung QR có logo giữa, napas 247 | MB, tên, STK, số tiền."""
-    import segno
-    from PIL import Image, ImageDraw
-
-    RED, NAVY, GREEN, GREY = (227, 30, 36), (24, 52, 120), (0, 160, 80), (60, 60, 60)
-    qr = segno.make(vietqr_payload(amount, content), error="h", micro=False)
-    n = qr.symbol_size(scale=1, border=0)[0]
-    scale = max(4, 440 // n)
-    buf = io.BytesIO()
-    qr.save(buf, kind="png", scale=scale, border=0, dark="black", light="white")
-    qimg = Image.open(buf).convert("RGB")
-    qs = qimg.size[0]
-
-    W, pad, frame = 640, 16, 3
-    box = qs + 2 * pad + 2 * frame
-    H = 110 + box + 40 + 70 + 150
-    img = Image.new("RGB", (W, H), "white")
-    d = ImageDraw.Draw(img)
-
-    # logo VIETQR
-    f_logo, _ = _font(72, True)
-    wv = d.textlength("V", font=f_logo)
-    wr = d.textlength("IETQR", font=f_logo)
-    x0 = (W - (wv + wr)) / 2
-    d.text((x0, 18), "V", font=f_logo, fill=RED)
-    d.text((x0 + wv, 18), "IETQR", font=f_logo, fill=NAVY)
-
-    # khung + QR
-    bx, by = (W - box) // 2, 110
-    d.rectangle([bx, by, bx + box - 1, by + box - 1], fill="white", outline=NAVY, width=frame)
-    img.paste(qimg, (bx + frame + pad, by + frame + pad))
-
-    # logo V ở giữa QR
-    cx, cy, r = W // 2, by + box // 2, max(26, qs // 11)
-    d.rounded_rectangle([cx - r, cy - r, cx + r, cy + r], radius=8, fill="white")
-    f_v, _ = _font(int(r * 1.5), True)
-    d.text((cx, cy), "V", font=f_v, fill=RED, anchor="mm")
-
-    # napas 247 | MB
-    y = by + box + 30
-    f_n, _ = _font(36, True)
-    wn = d.textlength("napas ", font=f_n)
-    w247 = d.textlength("247", font=f_n)
-    f_mb, _ = _font(40, True)
-    wmb = d.textlength("MB", font=f_mb)
-    gap = 36
-    total = (wn + w247) + gap * 2 + 2 + 30 + wmb
-    xs = (W - total) / 2
-    d.text((xs, y), "napas ", font=f_n, fill=NAVY)
-    d.text((xs + wn, y), "247", font=f_n, fill=GREEN)
-    xd = xs + wn + w247 + gap
-    d.line([(xd, y - 4), (xd, y + 48)], fill=(150, 150, 150), width=2)
-    xm = xd + gap
-    d.polygon([(xm + 12, y + 2), (xm + 18, y + 16), (xm + 32, y + 22), (xm + 18, y + 28),
-               (xm + 12, y + 44), (xm + 6, y + 28), (xm - 8, y + 22), (xm + 6, y + 16)], fill=RED)
-    d.text((xm + 40, y + 2), "MB", font=f_mb, fill=NAVY)
-
-    # tên / STK / số tiền
-    y += 90
-    f_name, _ = _font(30, True)
-    f_txt, vi = _font(28, False)
-    d.text((W // 2, y), BANK_OWNER, font=f_name, fill=(20, 20, 20), anchor="mt")
-    d.text((W // 2, y + 44), BANK_ACCOUNT, font=f_txt, fill=GREY, anchor="mt")
-    if amount:
-        label = "Số tiền" if vi else "So tien"
-        d.text((W // 2, y + 86), f"{label}: {int(amount):,}".replace(",", ".") + " VND",
-               font=f_txt, fill=GREY, anchor="mt")
-
-    out = io.BytesIO()
-    img.save(out, format="PNG")
-    return out.getvalue()
-
-
 async def send_qr(target: Message, uid: int, amount: int = 0):
+    """Hàm xử lý tạo và gửi mã QR nạp tiền tối ưu gọn gàng và ổn định."""
     cap = qr_caption(uid, amount)
     kb = qr_kb()
     loop = asyncio.get_running_loop()
     content = f"NAP{uid}"
-    # Cách 1 (ưu tiên): thẻ VietQR chính chủ tải từ img.vietqr.io
+
+    # 1. Thử tải thẻ VietQR đầy đủ thông tin từ img.vietqr.io
     try:
         data = await loop.run_in_executor(None, download_vietqr_card, amount, content)
         await target.answer_photo(BufferedInputFile(data, filename=f"vietqr_{amount}.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
-        logging.exception("Tải thẻ VietQR thất bại, chuyển sang tự vẽ thẻ")
-    # Cách 2: tự vẽ thẻ VietQR giống mẫu bằng Pillow (không phụ thuộc web ngoài)
-    try:
-        data = await loop.run_in_executor(None, make_card_png, amount, content)
-        await target.answer_photo(BufferedInputFile(data, filename=f"vietqr_{amount}.png"), caption=cap, reply_markup=kb)
-        return
-    except Exception:
-        logging.exception("Tự vẽ thẻ QR thất bại (đã cài pillow & segno chưa?), thử QR trơn")
-    # Cách 3: QR trơn
+        logging.exception("Tải thẻ VietQR thất bại, chuyển sang QR chuẩn segno")
+
+    # 2. Phương án dự phòng: Tạo ảnh QR chuẩn bằng segno
     try:
         data = await loop.run_in_executor(None, make_qr_png, amount, content)
         await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
-        logging.exception("Tự vẽ QR thất bại (đã cài segno chưa?)")
-    # Cách 3: gửi chữ
+        logging.exception("Tạo QR bằng segno thất bại")
+
+    # 3. Fallback cuối cùng nếu lỗi hình ảnh
     await target.answer(cap + "\n\n(Không tạo được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
                         reply_markup=kb)
 
