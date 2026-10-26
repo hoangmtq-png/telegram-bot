@@ -360,7 +360,7 @@ class TrackMW(BaseRequestMiddleware):
 async def clean_on_callback(handler, event, data):
     """Khách bấm nút -> xoá các tin cũ của bot phía trên (trừ tin quan trọng)."""
     d = event.data or ""
-    edits_current = (d.startswith(("f:", "am:", "del:", "delc:", "pv:"))
+    edits_current = (d.startswith(("f:", "am:", "del:", "delc:", "pv:", "st:", "stc:"))
                      or bool(re.match(r"adm:list:\d", d)))
     keep_id = event.message.message_id if (event.message and edits_current) else None
     ids = TRACK.pop(event.from_user.id, [])
@@ -1007,10 +1007,10 @@ async def adm_users(c: CallbackQuery):
 @router.callback_query(F.data == "adm:stats", admin_only)
 async def adm_stats(c: CallbackQuery):
     dep = q1("SELECT COALESCE(SUM(amount),0) s FROM tx WHERE type='deposit'")["s"]
-    sold = q1("SELECT COUNT(*) n, COALESCE(SUM(price),0) s FROM accounts WHERE sold=1")
+    sold = q1("SELECT COUNT(*) n, COALESCE(SUM(price),0) s FROM accounts WHERE sold=1 AND COALESCE(buyer,0)>0")
     stock = q1("SELECT COUNT(*) n FROM accounts WHERE sold=0")["n"]
     today = int(time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d")))
-    td = q1("SELECT COALESCE(SUM(price),0) s, COUNT(*) n FROM accounts WHERE sold=1 AND sold_at>=?", (today,))
+    td = q1("SELECT COALESCE(SUM(price),0) s, COUNT(*) n FROM accounts WHERE sold=1 AND COALESCE(buyer,0)>0 AND sold_at>=?", (today,))
     await c.message.answer(
         f"📊 <b>THỐNG KÊ</b>\n💳 Tổng tiền khách đã nạp: {money(dep)}\n"
         f"🛍 Đã bán: {sold['n']} acc = {money(sold['s'])}\n"
@@ -1025,7 +1025,7 @@ ADMIN_GUIDE = (
     "tiêu đề → mô tả → <code>user|pass</code> → gửi ảnh (tối đa 10) → gõ /done.\n\n"
     "<b>📦 Quản lý acc</b>: Admin Panel → Quản Lý / Xoá Acc (hoặc gõ <code>/xem MÃ</code>). Bấm vào acc để:\n"
     "• 🖼 Thêm ảnh • 🔄 Thay toàn bộ ảnh • 👁 Xem ảnh\n"
-    "• 🔢 Đổi mã số acc • 🗑 Xoá acc (acc đã bán không xoá được)\n\n"
+    "• 🔢 Đổi mã số acc • 🔁 Đổi trạng thái (còn hàng ↔ đã bán) • 🗑 Xoá acc (xoá được cả acc đã bán)\n\n"
     "<b>💰 Cộng/trừ tiền</b>: bấm nút Cộng/Trừ Tiền rồi nhập <code>ID SỐ_TIỀN</code> "
     "(trừ thì để số âm). Hoặc gõ nhanh:\n"
     "• <code>/cong ID SỐ_TIỀN</code> • <code>/tru ID SỐ_TIỀN</code>\n\n"
@@ -1262,20 +1262,63 @@ async def adm_list(c: CallbackQuery):
 @router.callback_query(F.data.startswith("del:"), admin_only)
 async def adm_del(c: CallbackQuery):
     _, aid, page = c.data.split(":")
+    a = q1("SELECT sold,buyer FROM accounts WHERE id=?", (int(aid),))
+    if not a:
+        return await c.answer("Acc không tồn tại!", show_alert=True)
+    warn = ""
+    if a["sold"] and a["buyer"]:
+        warn = f"\n\n⚠️ Acc này ĐÃ BÁN cho <code>{a['buyer']}</code>. Xoá xong khách đó sẽ <b>không xem lại được</b> tài khoản/mật khẩu trong Lịch Sử."
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Xác nhận XOÁ", callback_data=f"delc:{aid}:{page}")
-    kb.button(text="❌ Huỷ", callback_data=f"adm:list:{page}")
+    kb.button(text="❌ Huỷ", callback_data=f"am:{aid}:{page}")
     kb.adjust(2)
-    await c.message.edit_text(f"⚠️ Xoá acc <b>#{aid}</b>? Không thể khôi phục.", reply_markup=kb.as_markup())
+    await c.message.edit_text(f"⚠️ Xoá acc <b>#{aid}</b>? Không thể khôi phục.{warn}", reply_markup=kb.as_markup())
     await c.answer()
 
 
 @router.callback_query(F.data.startswith("delc:"), admin_only)
 async def adm_del_confirm(c: CallbackQuery):
     _, aid, page = c.data.split(":")
-    db.execute("DELETE FROM accounts WHERE id=? AND sold=0", (int(aid),))
+    db.execute("DELETE FROM accounts WHERE id=?", (int(aid),))
     await c.answer("Đã xoá!")
     await render_adm_list(c.message, int(page), edit=True)
+
+
+# ---- đổi trạng thái acc (còn hàng <-> đã bán) ----
+@router.callback_query(F.data.startswith("st:"), admin_only)
+async def adm_status(c: CallbackQuery):
+    _, aid, page = c.data.split(":")
+    a = q1("SELECT sold,buyer FROM accounts WHERE id=?", (int(aid),))
+    if not a:
+        return await c.answer("Acc không tồn tại!", show_alert=True)
+    kb = InlineKeyboardBuilder()
+    if a["sold"]:
+        warn = ""
+        if a["buyer"]:
+            warn = f"\n⚠️ Acc đang thuộc khách <code>{a['buyer']}</code>, khách đó sẽ không xem lại được acc trong Lịch Sử nữa (tiền KHÔNG tự hoàn, nếu cần dùng /cong)."
+        text = f"🔁 Chuyển acc <b>#{aid}</b> từ ❌ ĐÃ BÁN sang 🟢 <b>CÒN HÀNG</b>?{warn}"
+    else:
+        text = f"🔁 Chuyển acc <b>#{aid}</b> từ 🟢 CÒN HÀNG sang ❌ <b>ĐÃ BÁN</b> (ẩn khỏi kho, không tính doanh thu)?"
+    kb.button(text="✅ Xác nhận", callback_data=f"stc:{aid}:{page}")
+    kb.button(text="❌ Huỷ", callback_data=f"am:{aid}:{page}")
+    kb.adjust(2)
+    await c.message.edit_text(text, reply_markup=kb.as_markup())
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("stc:"), admin_only)
+async def adm_status_confirm(c: CallbackQuery):
+    _, aid, page = c.data.split(":")
+    a = q1("SELECT sold FROM accounts WHERE id=?", (int(aid),))
+    if not a:
+        return await c.answer("Acc không tồn tại!", show_alert=True)
+    if a["sold"]:
+        db.execute("UPDATE accounts SET sold=0,buyer=NULL,sold_at=NULL WHERE id=?", (int(aid),))
+        await c.answer("Đã chuyển sang CÒN HÀNG")
+    else:
+        db.execute("UPDATE accounts SET sold=1,buyer=0,sold_at=? WHERE id=?", (int(time.time()), int(aid)))
+        await c.answer("Đã chuyển sang ĐÃ BÁN")
+    await render_acc_manage(c.message, int(aid), int(page), edit=True)
 
 
 async def render_acc_manage(target: Message, aid: int, page: int, edit: bool):
@@ -1288,14 +1331,15 @@ async def render_acc_manage(target: Message, aid: int, page: int, edit: bool):
     kb.button(text="🔄 Thay toàn bộ ảnh", callback_data=f"pr:{aid}")
     kb.button(text="👁 Xem ảnh hiện tại", callback_data=f"pv:{aid}")
     kb.button(text="🔢 Đổi mã số acc", callback_data=f"pi:{aid}")
-    if not a["sold"]:
-        kb.button(text="🗑 Xoá acc", callback_data=f"del:{aid}:{page}")
+    kb.button(text=("🔁 Đổi trạng thái → CÒN HÀNG" if a["sold"] else "🔁 Đổi trạng thái → ĐÃ BÁN"),
+              callback_data=f"st:{aid}:{page}")
+    kb.button(text="🗑 Xoá acc", callback_data=f"del:{aid}:{page}")
     kb.button(text="⬅️ Danh sách", callback_data=f"adm:list:{page}")
-    kb.adjust(1, 1, 1, 1, 2)
+    kb.adjust(1, 1, 1, 1, 1, 2)
     text = (f"🆔 <b>#{aid}</b> | {GAMES.get(a['game'], a['game'])} | VIP {a['vip'] or 0}\n"
             f"📝 {esc(a['title'])}\n💵 {money(a['price'])}\nℹ️ {esc(a['info'])}\n"
             f"🔐 <code>{esc(a['login'])}</code>\n🖼 Số ảnh: {n_photo}\n"
-            f"📌 {'❌ ĐÃ BÁN cho ID ' + str(a['buyer']) if a['sold'] else '🟢 Còn hàng'}")
+            f"📌 {(('❌ ĐÃ BÁN cho ID ' + str(a['buyer'])) if a['buyer'] else '❌ ĐÃ BÁN (admin đánh dấu)') if a['sold'] else '🟢 Còn hàng'}")
     if edit:
         try:
             await target.edit_text(text, reply_markup=kb.as_markup())
