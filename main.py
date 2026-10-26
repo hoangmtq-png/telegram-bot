@@ -1,14 +1,14 @@
 """
-BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)
-- Khách: xem acc (bot gửi ảnh), mua bằng số dư, nạp tiền QR, xem lịch sử
-- Nạp tự động: SePay/Casso webhook -> cộng tiền theo nội dung "NAP <ID Telegram>"
+BOT SHOP BÁN ACC GAME (Delta Force / Free Fire / Liên Quân)  -  BẢN NÂNG CẤP
+- Menu chính hiện đại: 3 game nằm NGAY TRÊN MENU (bấm là vào danh sách acc)
+- Khách: xem acc (bot gửi ảnh), mua bằng số dư, nạp tiền QR (theo số tiền chọn), xem lịch sử
+- Nạp tự động: SePay webhook -> cộng tiền theo nội dung "NAP<ID Telegram>"
 - Admin: danh sách khách & số dư, cộng/trừ tiền, thêm/xoá acc, broadcast, gửi tin riêng, thống kê
-- Tự động xoá tin rác của bot, bấm tác vụ mới thì tin cũ biến mất, bấm Nạp Tiền ra QR ngay
+- Tự xoá tin rác, bấm tác vụ mới thì tin cũ biến mất
 - TỰ SAO LƯU database vào Telegram (ghim trong chat admin) và TỰ KHÔI PHỤC khi khởi động
 Yêu cầu: pip install -r requirements.txt  (aiogram, flask, waitress, segno)
 """
-import asyncio, hmac, html, json, logging, os, re, sqlite3, threading, time
-import io
+import asyncio, hmac, html, io, json, logging, os, re, sqlite3, threading, time
 import urllib.request
 from urllib.parse import quote
 
@@ -43,17 +43,17 @@ def _parse_admin_ids(raw: str) -> set:
 
 ADMIN_IDS = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
 BANK_CODE = "MB"
-BANK_BIN = "970422"   # mã BIN ngân hàng (MB = 970422, VCB = 970436, ACB = 970416, TCB = 970407, BIDV = 970418, VietinBank = 970415)
+BANK_BIN = "970422"   # MB = 970422, VCB = 970436, ACB = 970416, TCB = 970407, BIDV = 970418, VietinBank = 970415
 BANK_ACCOUNT = "3030777777"
 BANK_OWNER = "NGUYEN TIEN DAT"
-SEPAY_API_KEY = os.getenv("SEPAY_API_KEY", "")   # API key đặt trong SePay (webhook)
+SHOP_NAME = "SHOP ACC GAME"
+SEPAY_API_KEY = os.getenv("SEPAY_API_KEY", "")
 WEBHOOK_PORT = int(os.getenv("PORT", "8080"))
 SUPPORT = os.getenv("SUPPORT", "@your_username")
 DB_FILE = os.getenv("DB_FILE", "shop.db")   # Render Disk: đặt DB_FILE=/data/shop.db
 DB_TEMP = False
 _db_dir = os.path.dirname(DB_FILE)
 if _db_dir and not os.path.isdir(_db_dir):
-    # Chưa gắn Disk (thư mục chưa tồn tại) -> dùng DB tạm để bot vẫn chạy, KHÔNG bị crash
     DB_FILE = "shop.db"
     DB_TEMP = True
 
@@ -63,9 +63,7 @@ GAMES = {
     "lq": "⚔️ Liên Quân",
 }
 
-# Các mức VIP của acc (thêm/bớt tuỳ ý, tối đa ~10 mức)
 VIP_LEVELS = [0, 1, 2, 3, 4, 5]
-# Khoảng giá có sẵn: (nhãn, từ, đến) - đến = 0 nghĩa là không giới hạn
 PRICE_PRESETS = [
     ("Tất cả", 0, 0),
     ("Dưới 50K", 0, 50000),
@@ -74,13 +72,14 @@ PRICE_PRESETS = [
     ("200K-500K", 200000, 500000),
     ("Trên 500K", 500000, 0),
 ]
+MIN_DEPOSIT = 10000
+MAX_DEPOSIT = 500_000_000
 # ==================================================================
 
 logging.basicConfig(level=logging.INFO)
 router = Router()
 
 # ----------------------- KHÔI PHỤC DATABASE TỪ TELEGRAM -----------------------
-# Mặc định BẬT. Đặt biến môi trường AUTO_BACKUP=0 nếu muốn tắt.
 AUTO_BACKUP = os.getenv("AUTO_BACKUP", "1") != "0"
 RESTORE_STATUS = "skip"   # skip | restored | none | error
 
@@ -139,12 +138,10 @@ CREATE TABLE IF NOT EXISTS tx(
     type TEXT, note TEXT, ref TEXT UNIQUE, created INTEGER);
 """)
 
-
 try:
     db.execute("ALTER TABLE accounts ADD COLUMN vip INTEGER DEFAULT 0")
 except sqlite3.OperationalError:
     pass
-
 
 db.execute("CREATE INDEX IF NOT EXISTS idx_acc ON accounts(game, sold, price)")
 
@@ -195,18 +192,36 @@ def is_admin(uid):
     return uid in ADMIN_IDS
 
 
-# ----------------------------- KEYBOARDS -----------------------------
+# ----------------------------- MENU CHÍNH (HIỆN ĐẠI) -----------------------------
+def menu_text(user) -> str:
+    status = "Quản Trị Viên" if is_admin(user.id) else "Thành Viên Chính Thức"
+    in_stock = q1("SELECT COUNT(*) n FROM accounts WHERE sold=0")["n"]
+    return (
+        f"✨ <b>HỆ THỐNG {SHOP_NAME} - UY TÍN &amp; TỰ ĐỘNG</b> ✨\n"
+        f"══════════════════════\n\n"
+        f"👋 Xin chào, <b>{esc(user.full_name)}</b>!\n"
+        f"💎 Trạng thái: <b>{status}</b>\n\n"
+        f"💳 <b>TÀI KHOẢN CỦA BẠN:</b>\n"
+        f"┣ 🆔 ID Telegram: <code>{user.id}</code>\n"
+        f"┗ 💰 Số dư hiện tại: <code>{money(balance(user.id))}</code>\n\n"
+        f"📦 Kho hiện có: <b>{in_stock}</b> acc đang bán\n"
+        f"⚡ Hệ thống hoàn tất xử lý tự động 24/7.\n"
+        f"👇 Vui lòng chọn danh mục dịch vụ bên dưới:")
+
+
 def main_menu(uid):
     b = InlineKeyboardBuilder()
-    b.button(text="🛒 Xem Acc Game", callback_data="menu:shop")
-    b.button(text="💳 Nạp Tiền", callback_data="menu:deposit")
-    b.button(text="👤 Tài Khoản / Số Dư", callback_data="menu:balance")
-    b.button(text="📜 Lịch Sử", callback_data="menu:history")
-    b.button(text="📖 Hướng Dẫn Sử Dụng", callback_data="menu:guide")
-    b.button(text="🆘 Hỗ Trợ", callback_data="menu:support")
+    counts = {r["game"]: r["n"] for r in q("SELECT game, COUNT(*) n FROM accounts WHERE sold=0 GROUP BY game")}
+    for key, name in GAMES.items():
+        b.button(text=f"{name.upper()} ({counts.get(key, 0)} acc)", callback_data=f"game:{key}")
+    b.button(text="💳 NẠP TIỀN AUTO", callback_data="menu:deposit")
+    b.button(text="📜 LỊCH SỬ", callback_data="menu:history")
+    b.button(text="👤 TÀI KHOẢN", callback_data="menu:balance")
+    b.button(text="📖 HƯỚNG DẪN", callback_data="menu:guide")
+    b.button(text="💬 HỖ TRỢ KỸ THUẬT (ADMIN)", callback_data="menu:support")
     if is_admin(uid):
-        b.button(text="⚙️ Admin Panel", callback_data="adm:home")
-    b.adjust(1, 2, 2, 1, 1)
+        b.button(text="⚙️ ADMIN PANEL", callback_data="adm:home")
+    b.adjust(1, 2, 2, 2, 1, 1)
     return b.as_markup()
 
 
@@ -217,7 +232,6 @@ def back_main():
 
 
 def nav_kb(back_cb="adm:home", back_text="⬅️ Quay lại Admin"):
-    """Nút Quay lại + Menu Chính gắn vào mọi bước nhập."""
     b = InlineKeyboardBuilder()
     b.button(text=back_text, callback_data=back_cb)
     b.button(text="🏠 Menu Chính", callback_data="menu:main")
@@ -245,9 +259,8 @@ def admin_menu():
 
 # ----------------------------- CHẶN KẸT TRẠNG THÁI + BẮT LỖI -----------------------------
 async def reset_state_on_command(handler, event, data):
-    """1) Gõ lệnh /... (trừ /done) khi đang nhập dở thì thoát trạng thái nhập.
-    2) Khi đang ở bước nhập (thêm acc, cộng tiền, nhập giá...): xoá tin nhắn nhắc cũ của bot
-       và xoá luôn tin khách/admin vừa gõ sau khi xử lý xong, để khung chat luôn gọn."""
+    """Gõ lệnh /... (trừ /done) khi đang nhập dở thì thoát trạng thái nhập.
+    Đang ở bước nhập: xoá tin nhắc cũ của bot và xoá luôn tin vừa gõ để khung chat gọn."""
     st = data.get("state")
     t = (getattr(event, "text", None) or "").strip()
     if t.startswith("/"):
@@ -275,13 +288,12 @@ router.message.outer_middleware(reset_state_on_command)
 
 
 # ----------------------------- TỰ ĐỘNG XOÁ TIN NHẮN -----------------------------
-TRACK = {}            # chat_id -> [message_id] các tin của bot đang hiển thị
+TRACK = {}
 BG_TASKS = set()
-TTL_DEFAULT = 60      # tin rác (không có nút): xoá sau 60 giây
-TTL_MEDIA = 300       # ảnh acc: xoá sau 5 phút
-TTL_QR = 600          # ảnh QR: xoá sau 10 phút
+TTL_DEFAULT = 60
+TTL_MEDIA = 300
+TTL_QR = 600
 QR_PREFIX = "💳 <b>NẠP TIỀN TỰ ĐỘNG"
-# Tin bắt đầu bằng các ký tự này sẽ KHÔNG bị xoá (thông tin acc, thông báo quan trọng...)
 KEEP_PREFIXES = ("🎉", "✅ <b>NẠP TIỀN THÀNH CÔNG", "📢", "💬", "💰 Admin", "🛍", "💳 Khách", "⚠️ <b>CẢNH BÁO", "💾")
 
 
@@ -307,7 +319,6 @@ async def _delete_later(bot, chat_id, ids, ttl):
 
 
 async def wipe_tracked(bot, chat_id):
-    """Xoá các tin của bot đang hiển thị trong chat (tin nhắc, báo lỗi...)."""
     for i in TRACK.pop(chat_id, []):
         try:
             await bot.delete_message(chat_id, i)
@@ -331,7 +342,7 @@ class TrackMW(BaseRequestMiddleware):
                     elif text.startswith(QR_PREFIX):
                         ttl = TTL_QR
                     elif getattr(method, "reply_markup", None):
-                        ttl = None          # tin có nút: chỉ xoá khi khách bấm tác vụ khác
+                        ttl = None
                     else:
                         ttl = TTL_DEFAULT
                     lst = TRACK.setdefault(method.chat_id, [])
@@ -349,7 +360,6 @@ class TrackMW(BaseRequestMiddleware):
 async def clean_on_callback(handler, event, data):
     """Khách bấm nút -> xoá các tin cũ của bot phía trên (trừ tin quan trọng)."""
     d = event.data or ""
-    # các nút này sửa trực tiếp (edit) tin hiện tại / cần giữ tin hiện tại nên không được xoá tin đó
     edits_current = (d.startswith(("f:", "am:", "del:", "delc:", "pv:"))
                      or bool(re.match(r"adm:list:\d", d)))
     keep_id = event.message.message_id if (event.message and edits_current) else None
@@ -377,6 +387,7 @@ async def cmd_cancel(m: Message, state: FSMContext):
     await m.answer("✅ Đã huỷ thao tác.", reply_markup=main_menu(m.from_user.id))
 
 
+@router.error()
 async def on_error(event: ErrorEvent):
     logging.error("Lỗi khi xử lý update: %r", event.exception, exc_info=event.exception)
     try:
@@ -390,30 +401,36 @@ async def on_error(event: ErrorEvent):
     return True
 
 
-(getattr(router, "error", None) or router.errors)()(on_error)
-
-
 # ----------------------------- KHÁCH HÀNG -----------------------------
+async def send_main_menu(target: Message, user):
+    ensure_user(user)
+    await target.answer(menu_text(user), reply_markup=main_menu(user.id))
+
+
 @router.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
-    ensure_user(m.from_user)
-    await m.answer(
-        f"👋 Chào <b>{esc(m.from_user.full_name)}</b>!\n"
-        f"Chào mừng đến <b>Shop Acc Game</b> uy tín.\n\n"
-        f"🆔 ID của bạn: <code>{m.from_user.id}</code>\n"
-        f"💰 Số dư: <b>{money(balance(m.from_user.id))}</b>\n\n"
-        f"📖 Lần đầu dùng? Bấm <b>Hướng Dẫn Sử Dụng</b> bên dưới hoặc gõ /huongdan.",
-        reply_markup=main_menu(m.from_user.id))
+    await send_main_menu(m, m.from_user)
+
+
+@router.message(Command("menu"))
+async def cmd_menu(m: Message, state: FSMContext):
+    await state.clear()
+    await send_main_menu(m, m.from_user)
 
 
 @router.callback_query(F.data == "menu:main")
 async def cb_main(c: CallbackQuery, state: FSMContext):
     await state.clear()
-    ensure_user(c.from_user)
-    await c.message.answer(
-        f"🏠 <b>MENU CHÍNH</b>\n💰 Số dư: <b>{money(balance(c.from_user.id))}</b>",
-        reply_markup=main_menu(c.from_user.id))
+    await send_main_menu(c.message, c.from_user)
+    await c.answer()
+
+
+@router.callback_query(F.data == "menu:shop")
+async def cb_shop(c: CallbackQuery, state: FSMContext):
+    """Tương thích nút cũ: game đã nằm ngay trên menu chính."""
+    await state.clear()
+    await send_main_menu(c.message, c.from_user)
     await c.answer()
 
 
@@ -421,8 +438,8 @@ async def cb_main(c: CallbackQuery, state: FSMContext):
 async def cb_balance(c: CallbackQuery):
     ensure_user(c.from_user)
     await c.message.answer(
-        f"👤 <b>TÀI KHOẢN</b>\n🆔 ID: <code>{c.from_user.id}</code>\n"
-        f"💰 Số dư: <b>{money(balance(c.from_user.id))}</b>",
+        f"👤 <b>TÀI KHOẢN</b>\n┣ 🆔 ID: <code>{c.from_user.id}</code>\n"
+        f"┗ 💰 Số dư: <b>{money(balance(c.from_user.id))}</b>",
         reply_markup=back_main())
     await c.answer()
 
@@ -453,12 +470,11 @@ async def cb_history(c: CallbackQuery):
 GUIDES = {
     "buy": ("🛒 Cách xem & mua acc",
             "🛒 <b>CÁCH XEM &amp; MUA ACC</b>\n\n"
-            "1️⃣ Ở menu chính bấm <b>🛒 Xem Acc Game</b>\n"
-            "2️⃣ Chọn game bạn cần (Delta Force / Free Fire / Liên Quân)\n"
-            "3️⃣ Chọn acc trong danh sách. Bot sẽ gửi <b>ảnh + mô tả + giá</b> của đúng acc đó\n"
-            "4️⃣ Ưng acc thì bấm <b>✅ MUA NGAY</b>\n"
-            "5️⃣ Nếu đủ số dư, bot trừ tiền và <b>gửi ngay tài khoản, mật khẩu</b> cho bạn\n\n"
-            "🟢 = còn hàng • ❌ ĐÃ BÁN = đã có người mua (chỉ xem tham khảo, không mua được)\n"
+            "1️⃣ Ở menu chính bấm thẳng vào game bạn cần (Delta Force / Free Fire / Liên Quân)\n"
+            "2️⃣ Chọn acc trong danh sách. Bot sẽ gửi <b>ảnh + mô tả + giá</b> của đúng acc đó\n"
+            "3️⃣ Ưng acc thì bấm <b>✅ MUA NGAY</b>\n"
+            "4️⃣ Nếu đủ số dư, bot trừ tiền và <b>gửi ngay tài khoản, mật khẩu</b> cho bạn\n\n"
+            "🟢 = còn hàng • ❌ ĐÃ BÁN = đã có người mua (chỉ xem tham khảo)\n"
             "💡 Thiếu tiền thì bot sẽ báo và có nút nạp tiền nhanh."),
     "filter": ("🔎 Cách lọc theo giá & VIP",
                "🔎 <b>CÁCH LỌC ACC THEO GIÁ &amp; VIP</b>\n\n"
@@ -466,15 +482,15 @@ GUIDES = {
                "💵 <b>Lọc giá</b>: bấm khoảng giá có sẵn (Dưới 50K, 50K-100K...).\n"
                "   Muốn khoảng giá riêng bấm <b>✍️ Tự nhập giá</b> rồi gõ dạng <code>từ-đến</code>:\n"
                "   • <code>50k-200k</code> • <code>1tr-3tr</code> • <code>100k-</code> (từ 100k trở lên)\n\n"
-               "⭐ <b>Lọc VIP</b>: bấm <b>VIP 0, VIP 1...</b> Có thể bấm nhiều mức cùng lúc "
-               "(VD bấm VIP 0 + VIP 1 để xem cả hai). Bấm <b>Mọi VIP</b> để bỏ lọc.\n\n"
+               "⭐ <b>Lọc VIP</b>: bấm <b>VIP 0, VIP 1...</b> Có thể bấm nhiều mức cùng lúc. "
+               "Bấm <b>Mọi VIP</b> để bỏ lọc.\n\n"
                "📄 Danh sách dài thì dùng nút <b>◀️ Trước / Sau ▶️</b> để chuyển trang.\n"
                "✅ Nút có dấu tích là bộ lọc đang chọn."),
     "deposit": ("💳 Cách nạp tiền",
                 "💳 <b>CÁCH NẠP TIỀN (TỰ ĐỘNG 24/7)</b>\n\n"
-                "1️⃣ Bấm <b>💳 Nạp Tiền</b> ở menu chính, bot gửi ngay <b>mã QR</b> MB Bank\n"
-                "2️⃣ Mở app ngân hàng quét mã, nhập số tiền (tối thiểu 10.000đ). "
-                "Muốn QR có sẵn số tiền thì bấm nút chọn nhanh bên dưới QR (hoặc <b>✍️ Nhập số khác</b>)\n"
+                "1️⃣ Bấm <b>💳 Nạp Tiền Auto</b> ở menu chính, bot gửi ngay <b>mã QR</b>\n"
+                "2️⃣ Bấm nút số tiền (20K, 50K, 100K...) hoặc <b>✍️ Nhập số khác</b> "
+                "→ bot tạo QR <b>có sẵn số tiền + nội dung</b>, bạn chỉ việc quét và xác nhận\n"
                 "3️⃣ Chuyển khoản xong chờ <b>1-2 phút</b>, bot tự cộng tiền và nhắn báo cho bạn\n\n"
                 f"🏦 MB Bank • STK <code>{BANK_ACCOUNT}</code> • {BANK_OWNER}\n"
                 "⚠️ <b>Giữ nguyên nội dung chuyển khoản</b> <code>NAP + ID Telegram của bạn</code> "
@@ -482,8 +498,8 @@ GUIDES = {
                 "❗ Quá 10 phút chưa thấy cộng tiền: bấm Hỗ Trợ và gửi kèm ảnh bill chuyển khoản."),
     "account": ("👤 Số dư & lịch sử",
                 "👤 <b>XEM SỐ DƯ &amp; LỊCH SỬ</b>\n\n"
-                "• <b>👤 Tài Khoản / Số Dư</b>: xem ID Telegram và số dư hiện tại\n"
-                "• <b>📜 Lịch Sử</b>: xem 15 giao dịch gần nhất (nạp tiền, mua acc, admin cộng/trừ tiền)\n\n"
+                "• <b>👤 Tài Khoản</b>: xem ID Telegram và số dư hiện tại\n"
+                "• <b>📜 Lịch Sử</b>: xem 15 giao dịch gần nhất\n\n"
                 "🆔 ID Telegram của bạn cũng chính là mã dùng trong nội dung chuyển khoản <code>NAP...</code>."),
     "after": ("🔐 Sau khi mua acc",
               "🔐 <b>SAU KHI MUA ACC</b>\n\n"
@@ -491,8 +507,7 @@ GUIDES = {
               "Hãy <b>copy và lưu lại</b> ngay.\n"
               "• Đăng nhập xong nên <b>đổi mật khẩu</b> và liên kết thông tin của bạn để bảo mật.\n"
               "• Mỗi acc chỉ bán <b>1 lần duy nhất</b> cho 1 người.\n"
-              "• Acc có vấn đề (không đăng nhập được...) hãy liên hệ Hỗ Trợ ngay, "
-              "kèm <b>mã acc (#số)</b> và ảnh chụp lỗi."),
+              "• Acc có vấn đề hãy liên hệ Hỗ Trợ ngay, kèm <b>mã acc (#số)</b> và ảnh chụp lỗi."),
 }
 
 
@@ -529,21 +544,8 @@ async def cb_guide_item(c: CallbackQuery):
     await c.answer()
 
 
-# ---- Shop ----
-@router.callback_query(F.data == "menu:shop")
-async def cb_shop(c: CallbackQuery):
-    b = InlineKeyboardBuilder()
-    for key, name in GAMES.items():
-        n = q1("SELECT COUNT(*) n FROM accounts WHERE game=? AND sold=0", (key,))["n"]
-        b.button(text=f"{name} ({n} acc)", callback_data=f"game:{key}")
-    b.button(text="🏠 Menu Chính", callback_data="menu:main")
-    b.adjust(1)
-    await c.message.answer("🎮 <b>CHỌN GAME</b> bạn muốn xem acc:", reply_markup=b.as_markup())
-    await c.answer()
-
-
 # ---- Bộ lọc acc theo GIÁ + VIP ----
-USER_FILTER = {}   # uid -> (game, "min-max", vip_mask, page)  để nút "Quay lại" nhớ bộ lọc
+USER_FILTER = {}
 
 
 class PriceIn(StatesGroup):
@@ -621,7 +623,7 @@ async def show_filter(target: Message, uid: int, game: str, rng: str, mask: int,
         nav.append(("Sau ▶️", f"f:{game}:{rng}:{mask}:{page + 1}"))
     for t, cb in nav:
         kb.button(text=t, callback_data=cb)
-    kb.button(text="⬅️ Chọn game khác", callback_data="menu:shop")
+    kb.button(text="🏠 Về Menu Chính", callback_data="menu:main")
     kb.adjust(3, 3, 1, 4, 3, *([1] * len(rows)), *([len(nav)] if nav else []), 1)
 
     text = (f"{GAMES.get(game, game)}\n"
@@ -641,7 +643,10 @@ async def show_filter(target: Message, uid: int, game: str, rng: str, mask: int,
 
 @router.callback_query(F.data.startswith("game:"))
 async def cb_game(c: CallbackQuery):
-    await show_filter(c.message, c.from_user.id, c.data.split(":")[1], "0-0", 0)
+    game = c.data.split(":")[1]
+    if game not in GAMES:
+        return await c.answer()
+    await show_filter(c.message, c.from_user.id, game, "0-0", 0)
     await c.answer()
 
 
@@ -684,7 +689,7 @@ async def filter_custom_input(m: Message, state: FSMContext):
         lo = to_vnd(parts[0])
         hi = to_vnd(parts[1]) if len(parts) > 1 else 0
     except Exception:
-        return await m.answer("❌ Sai định dạng. VD: <code>50k-200k</code>", reply_markup=nav_kb("menu:shop", "⬅️ Chọn game"))
+        return await m.answer("❌ Sai định dạng. VD: <code>50k-200k</code>", reply_markup=back_main())
     lo, hi = min(lo, 10**9), min(hi, 10**9)
     if hi and hi < lo:
         lo, hi = hi, lo
@@ -706,7 +711,14 @@ async def cb_acc(c: CallbackQuery):
             f"⭐ Cấp VIP: <b>VIP {a['vip'] or 0}</b>\n"
             f"📝 {esc((a['title'] or '')[:80])}\n"
             f"💵 Giá: <b>{money(a['price'])}</b>")
-    detail = head + f"\n\nℹ️ {esc((a['info'] or '')[:1500])}"
+    info = f"ℹ️ <b>Mô tả acc #{a['id']}</b>\n{esc((a['info'] or '')[:1500])}"
+    b = InlineKeyboardBuilder()
+    if not a["sold"]:
+        b.button(text=f"✅ MUA NGAY - {money(a['price'])}", callback_data=f"buy:{aid}")
+    b.button(text="⬅️ Quay lại danh sách", callback_data=f"fb:{a['game']}")
+    b.adjust(1)
+    tail = "\n\n" + ("👇 Bạn có muốn mua acc này không?" if not a["sold"] else "😔 Acc này đã có người mua.")
+
     photos = json.loads(a["photos"] or "[]")
     sent = False
     if photos:
@@ -714,19 +726,13 @@ async def cb_acc(c: CallbackQuery):
             media = [InputMediaPhoto(media=p) for p in photos[:10]]
             media[0] = InputMediaPhoto(media=photos[0], caption=head)
             await c.message.answer_media_group(media)
-            await c.message.answer(f"ℹ️ <b>Mô tả acc #{a['id']}</b>\n{esc((a['info'] or '')[:1500])}")
+            # mô tả + nút mua chung 1 tin (có nút nên không bị tự xoá sau 60s)
+            await c.message.answer(info + tail, reply_markup=b.as_markup())
             sent = True
         except Exception:
             logging.exception("Không gửi được ảnh acc #%s", aid)
     if not sent:
-        await c.message.answer(detail)
-    b = InlineKeyboardBuilder()
-    if not a["sold"]:
-        b.button(text=f"✅ MUA NGAY - {money(a['price'])}", callback_data=f"buy:{aid}")
-    b.button(text="⬅️ Quay lại danh sách", callback_data=f"fb:{a['game']}")
-    b.adjust(1)
-    await c.message.answer("Bạn có muốn mua acc này không?" if not a["sold"] else "😔 Acc này đã có người mua.",
-                           reply_markup=b.as_markup())
+        await c.message.answer(head + "\n\n" + info + tail, reply_markup=b.as_markup())
     await c.answer()
 
 
@@ -745,11 +751,11 @@ async def cb_buy(c: CallbackQuery):
         b.button(text="🏠 Menu Chính", callback_data="menu:main")
         b.adjust(1)
         await c.message.answer(
-            f"❌ Số dư không đủ!\nCần: <b>{money(a['price'])}</b> | Có: <b>{money(balance(uid))}</b>",
+            f"❌ Số dư không đủ!\nCần: <b>{money(a['price'])}</b> | Có: <b>{money(balance(uid))}</b>\n"
+            f"Còn thiếu: <b>{money(a['price'] - balance(uid))}</b>",
             reply_markup=b.as_markup())
         await c.answer()
         return
-    # Khoá mua: chỉ 1 người mua được (asyncio đơn luồng + điều kiện sold=0)
     cur = db.execute("UPDATE accounts SET sold=1,buyer=?,sold_at=? WHERE id=? AND sold=0",
                      (uid, int(time.time()), aid))
     if cur.rowcount == 0:
@@ -762,16 +768,17 @@ async def cb_buy(c: CallbackQuery):
         f"💰 Số dư còn: <b>{money(balance(uid))}</b>\n"
         f"⚠️ Vui lòng đổi mật khẩu &amp; liên kết ngay sau khi nhận.",
         reply_markup=back_main())
+    uname = f"@{c.from_user.username}" if c.from_user.username else esc(c.from_user.full_name)
     for ad in ADMIN_IDS:
         try:
             await c.bot.send_message(
-                ad, f"🛍 Khách <code>{uid}</code> (@{c.from_user.username}) vừa mua acc #{aid} - {money(a['price'])}")
+                ad, f"🛍 Khách <code>{uid}</code> ({uname}) vừa mua acc #{aid} - {money(a['price'])}")
         except Exception:
             pass
     await c.answer("Thành công!")
 
 
-# ---- Nạp tiền ----
+# ---- Nạp tiền (QR theo số tiền khách chọn) ----
 class Dep(StatesGroup):
     amount = State()
 
@@ -786,23 +793,18 @@ def deposit_kb():
     return b.as_markup()
 
 
-def send_qr_text(uid, amount=0):
+def qr_caption(uid, amount=0):
     content = f"NAP{uid}"
-    url = (f"https://img.vietqr.io/image/{BANK_CODE}-{BANK_ACCOUNT}-compact2.png"
-           f"?addInfo={content}&accountName={quote(BANK_OWNER)}")
-    if amount:
-        url += f"&amount={amount}"
-    money_line = (f"💵 Số tiền: <b>{money(amount)}</b>" if amount
+    money_line = (f"💵 Số tiền: <b>{money(amount)}</b> (đã điền sẵn trong QR)" if amount
                   else "💵 Số tiền: <b>tuỳ bạn nhập trong app</b> (tối thiểu 10.000đ)")
-    cap = (f"💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n\n"
-           f"🏦 Ngân hàng: <b>MB Bank</b>\n"
-           f"🔢 STK: <code>{BANK_ACCOUNT}</code>\n"
-           f"👤 Chủ TK: <b>{BANK_OWNER}</b>\n"
-           f"{money_line}\n"
-           f"📝 Nội dung CK: <code>{content}</code>\n\n"
-           f"⚠️ Nhập <b>đúng nội dung</b> để được cộng tiền tự động (1-2 phút).\n"
-           f"👇 Muốn QR có sẵn số tiền, bấm chọn bên dưới.")
-    return url, cap
+    return (f"💳 <b>NẠP TIỀN TỰ ĐỘNG</b>\n\n"
+            f"🏦 Ngân hàng: <b>MB Bank</b>\n"
+            f"🔢 STK: <code>{BANK_ACCOUNT}</code>\n"
+            f"👤 Chủ TK: <b>{BANK_OWNER}</b>\n"
+            f"{money_line}\n"
+            f"📝 Nội dung CK: <code>{content}</code>\n\n"
+            f"⚠️ Giữ <b>đúng nội dung</b> để được cộng tiền tự động (1-2 phút).\n"
+            f"👇 Muốn QR có sẵn số tiền khác, bấm chọn bên dưới.")
 
 
 def _tlv(tag: str, val: str) -> str:
@@ -820,7 +822,7 @@ def _crc16(data: str) -> int:
 
 
 def vietqr_payload(amount: int, content: str) -> str:
-    """Tạo chuỗi VietQR (chuẩn NAPAS 247) để tự vẽ QR, không cần web ngoài."""
+    """Chuỗi VietQR chuẩn NAPAS 247 (có số tiền + nội dung chuyển khoản)."""
     acc = _tlv("00", BANK_BIN) + _tlv("01", BANK_ACCOUNT)
     merchant = _tlv("00", "A000000727") + _tlv("01", acc) + _tlv("02", "QRIBFTTA")
     p = _tlv("00", "01") + _tlv("01", "12" if amount else "11") + _tlv("38", merchant) + _tlv("53", "704")
@@ -834,63 +836,91 @@ def vietqr_payload(amount: int, content: str) -> str:
 def make_qr_png(amount: int, content: str) -> bytes:
     import segno
     buf = io.BytesIO()
-    segno.make(vietqr_payload(amount, content), error="m").save(buf, kind="png", scale=8, border=4)
+    segno.make(vietqr_payload(amount, content), error="m", micro=False).save(
+        buf, kind="png", scale=8, border=4, dark="black", light="white")
     return buf.getvalue()
 
 
 def _download(url: str) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
-        return r.read()
+        data = r.read()
+    if not data.startswith(b"\x89PNG"):
+        raise ValueError("vietqr.io không trả về ảnh PNG")
+    return data
 
 
 async def send_qr(target: Message, uid: int, amount: int = 0):
-    url, cap = send_qr_text(uid, amount)
+    cap = qr_caption(uid, amount)
     kb = deposit_kb()
-    # Cách 1: bot tự vẽ QR VietQR ngay trên server (không phụ thuộc web ngoài)
+    loop = asyncio.get_running_loop()
+    content = f"NAP{uid}"
+    # Cách 1: tự vẽ QR VietQR trên server (nhanh, không phụ thuộc web ngoài)
     try:
-        data = make_qr_png(amount, f"NAP{uid}")
-        await target.answer_photo(BufferedInputFile(data, filename="qr.png"), caption=cap, reply_markup=kb)
+        data = await loop.run_in_executor(None, make_qr_png, amount, content)
+        await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
         logging.exception("Tự vẽ QR thất bại (đã cài segno chưa?), thử tải từ vietqr.io")
-    # Cách 2: tải ảnh từ img.vietqr.io rồi gửi lên
+    # Cách 2: tải ảnh từ img.vietqr.io (có amount) rồi gửi lên
     try:
-        data = await asyncio.get_running_loop().run_in_executor(None, _download, url)
-        await target.answer_photo(BufferedInputFile(data, filename="qr.png"), caption=cap, reply_markup=kb)
+        url = (f"https://img.vietqr.io/image/{BANK_BIN}-{BANK_ACCOUNT}-compact2.png"
+               f"?addInfo={quote(content)}&accountName={quote(BANK_OWNER)}")
+        if amount:
+            url += f"&amount={int(amount)}"
+        data = await loop.run_in_executor(None, _download, url)
+        await target.answer_photo(BufferedInputFile(data, filename=f"qr_{amount}.png"), caption=cap, reply_markup=kb)
         return
     except Exception:
         logging.exception("Tải QR từ vietqr.io thất bại")
     # Cách 3: gửi chữ
-    await target.answer(cap + "\n\n(Không tải được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
+    await target.answer(cap + "\n\n(Không tạo được ảnh QR, hãy chuyển khoản thủ công theo thông tin trên.)",
                         reply_markup=kb)
 
 
 @router.callback_query(F.data == "menu:deposit")
-async def cb_deposit(c: CallbackQuery):
-    await send_qr(c.message, c.from_user.id, 0)     # bấm Nạp Tiền là ra QR luôn
+async def cb_deposit(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    ensure_user(c.from_user)
+    await send_qr(c.message, c.from_user.id, 0)
     await c.answer()
+
+
+@router.message(Command("nap"))
+async def cmd_nap(m: Message, state: FSMContext):
+    await state.clear()
+    ensure_user(m.from_user)
+    await send_qr(m, m.from_user.id, 0)
 
 
 @router.callback_query(F.data.startswith("dep:"))
 async def cb_dep(c: CallbackQuery, state: FSMContext):
+    ensure_user(c.from_user)
     v = c.data.split(":")[1]
     if v == "custom":
         await state.set_state(Dep.amount)
-        await c.message.answer("✍️ Nhập số tiền muốn nạp (tối thiểu 10.000):", reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
+        await c.message.answer(
+            f"✍️ Nhập số tiền muốn nạp (tối thiểu {money(MIN_DEPOSIT)}).\nVD: <code>75000</code> hoặc <code>75k</code> hoặc <code>1tr</code>",
+            reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
     else:
+        await state.clear()
         await send_qr(c.message, c.from_user.id, int(v))
     await c.answer()
 
 
 @router.message(Dep.amount)
 async def dep_amount(m: Message, state: FSMContext):
-    txt = re.sub(r"\D", "", m.text or "")
-    if not txt or int(txt) < 10000 or int(txt) > 500_000_000:
-        await m.answer("❌ Số tiền không hợp lệ (từ 10.000 đến 500.000.000).", reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
+    try:
+        amount = to_vnd(m.text or "")
+    except Exception:
+        amount = 0
+    if amount < MIN_DEPOSIT or amount > MAX_DEPOSIT:
+        await m.answer(f"❌ Số tiền không hợp lệ (từ {money(MIN_DEPOSIT)} đến {money(MAX_DEPOSIT)}).",
+                       reply_markup=nav_kb("menu:deposit", "⬅️ Quay lại Nạp tiền"))
         return
     await state.clear()
-    await send_qr(m, m.from_user.id, int(txt))
+    ensure_user(m.from_user)
+    await send_qr(m, m.from_user.id, amount)
 
 
 # ----------------------------- ADMIN -----------------------------
@@ -976,15 +1006,13 @@ ADMIN_GUIDE = (
     "<b>💾 Sao lưu</b>: bot TỰ sao lưu database vào chat này (tin được ghim <code>💾 AUTO_BACKUP</code>, "
     "<b>đừng xoá / bỏ ghim</b>) và TỰ khôi phục khi khởi động lại. "
     "Gõ <code>/backup</code> để nhận thêm 1 bản lưu thủ công về máy.\n\n"
-    "<b>🧹 Tự xoá tin</b>: tin rác của bot tự xoá sau 1 phút; bấm tác vụ khác thì tin cũ biến mất. "
-    "Tin acc mua thành công, báo nạp tiền, broadcast, backup không bị xoá.\n\n"
-    "<b>Lệnh hữu ích</b>: /admin mở panel • /huy huỷ thao tác đang làm • /done kết thúc gửi ảnh."
+    "<b>🧹 Tự xoá tin</b>: tin rác của bot tự xoá sau 1 phút; bấm tác vụ khác thì tin cũ biến mất.\n\n"
+    "<b>Lệnh hữu ích</b>: /menu menu chính • /admin mở panel • /huy huỷ thao tác • /done kết thúc gửi ảnh."
 )
 
 
 @router.message(Command("backup"))
 async def cmd_backup(m: Message):
-    """Admin gõ /backup để nhận file database (sao lưu acc, ảnh, số dư khách)."""
     if not is_admin(m.from_user.id):
         return
     tmp = "backup_tmp.db"
@@ -1076,16 +1104,19 @@ async def adm_add(c: CallbackQuery, state: FSMContext):
 async def adm_add_game(c: CallbackQuery, state: FSMContext):
     await state.update_data(game=c.data.split(":")[1], photos=[])
     await state.set_state(AddAcc.price)
-    await c.message.answer("💵 Nhập giá bán (số, VD: 150000):", reply_markup=nav_kb())
+    await c.message.answer("💵 Nhập giá bán (số, VD: 150000 hoặc 150k):", reply_markup=nav_kb())
     await c.answer()
 
 
 @router.message(AddAcc.price)
 async def add_price(m: Message, state: FSMContext):
-    v = re.sub(r"\D", "", m.text or "")
-    if not v or int(v) > 10**9:
+    try:
+        v = to_vnd(m.text or "")
+    except Exception:
+        v = 0
+    if not v or v > 10**9:
         return await m.answer("❌ Nhập số tiền hợp lệ (VD: 150000).", reply_markup=nav_kb())
-    await state.update_data(price=int(v))
+    await state.update_data(price=v)
     await state.set_state(AddAcc.vip)
     kb = InlineKeyboardBuilder()
     for lv in VIP_LEVELS:
@@ -1315,12 +1346,6 @@ async def photo_edit_done(m: Message, state: FSMContext):
     await render_acc_manage(m, d["aid"], 0, edit=False)
 
 
-@router.message(EditAcc.photos, Command("huy"))
-async def photo_edit_cancel(m: Message, state: FSMContext):
-    await state.clear()
-    await m.answer("Đã huỷ, ảnh giữ nguyên.", reply_markup=admin_menu())
-
-
 # ---- đổi mã số acc ----
 @router.callback_query(F.data.startswith("pi:"), admin_only)
 async def id_edit_start(c: CallbackQuery, state: FSMContext):
@@ -1328,14 +1353,8 @@ async def id_edit_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(EditAcc.newid)
     await state.update_data(aid=aid)
     await c.message.answer(f"🔢 Nhập <b>mã số mới</b> cho acc #{aid} (số nguyên dương, chưa có acc nào dùng).\nHuỷ gõ /huy",
-        reply_markup=nav_kb("adm:list", "⬅️ Danh sách"))
+                           reply_markup=nav_kb("adm:list", "⬅️ Danh sách"))
     await c.answer()
-
-
-@router.message(EditAcc.newid, Command("huy"))
-async def id_edit_cancel(m: Message, state: FSMContext):
-    await state.clear()
-    await m.answer("Đã huỷ.", reply_markup=admin_menu())
 
 
 @router.message(EditAcc.newid)
@@ -1390,6 +1409,8 @@ async def adm_pm(c: CallbackQuery, state: FSMContext):
 
 @router.message(PM.uid)
 async def pm_uid(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
     if not (m.text or "").strip().isdigit():
         return await m.answer("❌ ID phải là số.", reply_markup=nav_kb())
     await state.update_data(uid=int(m.text))
@@ -1399,6 +1420,8 @@ async def pm_uid(m: Message, state: FSMContext):
 
 @router.message(PM.text)
 async def pm_text(m: Message, state: FSMContext):
+    if not is_admin(m.from_user.id):
+        return
     d = await state.get_data()
     await state.clear()
     try:
@@ -1409,7 +1432,7 @@ async def pm_text(m: Message, state: FSMContext):
 
 
 # ----------------------------- TỰ SAO LƯU DATABASE VÀO TELEGRAM -----------------------------
-BACKUP_INTERVAL = 30                 # kiểm tra mỗi 30 giây, có thay đổi mới gửi bản sao lưu
+BACKUP_INTERVAL = 30
 BACKUP_STATE = {"changes": None, "msg_id": None}
 
 
@@ -1442,7 +1465,7 @@ async def do_auto_backup():
 
 
 async def auto_backup_loop():
-    BACKUP_STATE["changes"] = db.total_changes      # chỉ sao lưu khi có thay đổi MỚI sau lúc khởi động
+    BACKUP_STATE["changes"] = db.total_changes
     while True:
         await asyncio.sleep(BACKUP_INTERVAL)
         try:
@@ -1453,7 +1476,6 @@ async def auto_backup_loop():
 
 
 async def final_backup():
-    """Sao lưu lần cuối khi bot tắt (redeploy / restart) để không mất thay đổi trong vài giây cuối."""
     try:
         if BACKUP_STATE["changes"] is not None and db.total_changes != BACKUP_STATE["changes"]:
             await do_auto_backup()
@@ -1464,7 +1486,7 @@ async def final_backup():
 
 # ----------------------------- FLASK (web server cho Render + webhook SePay) -----------------------------
 flask_app = Flask(__name__)
-MAIN_LOOP = None   # event loop của bot
+MAIN_LOOP = None
 BOT = None
 
 
@@ -1480,14 +1502,14 @@ def health():
 
 async def process_deposit(data: dict):
     """Chạy trong event loop của bot để DB luôn được truy cập từ 1 luồng."""
-    if data.get("transferType") != "in":
+    if str(data.get("transferType", "")).lower() != "in":
         return
     acc = str(data.get("accountNumber") or "")
     if acc and acc != BANK_ACCOUNT:
         logging.warning("Bỏ qua giao dịch của STK khác: %s", acc)
         return
-    text = f"{data.get('content', '')} {data.get('code', '')}".upper()
-    m = re.search(r"NAP\s*(\d{5,12})", text)
+    text = f"{data.get('content', '')} {data.get('code', '')} {data.get('description', '')}".upper()
+    m = re.search(r"NAP\s*(\d{5,15})", text)
     if not m:
         logging.info("Giao dịch không có nội dung NAP<ID>: %r", data.get("content"))
         return
@@ -1501,7 +1523,8 @@ async def process_deposit(data: dict):
     if amount > 0 and change_balance(uid, amount, "deposit", "Nạp tiền MB Bank", ref):
         logging.info("Đã cộng %s cho %s", amount, uid)
         try:
-            await BOT.send_message(uid, f"✅ <b>NẠP TIỀN THÀNH CÔNG</b>\n+{money(amount)}\n💰 Số dư: <b>{money(balance(uid))}</b>")
+            await BOT.send_message(uid, f"✅ <b>NẠP TIỀN THÀNH CÔNG</b>\n+{money(amount)}\n💰 Số dư: <b>{money(balance(uid))}</b>",
+                                   reply_markup=back_main())
         except Exception:
             pass
         for ad in ADMIN_IDS:
@@ -1530,7 +1553,7 @@ def sepay_hook():
 
 
 def run_flask():
-    serve(flask_app, host="0.0.0.0", port=WEBHOOK_PORT)   # Render cấp biến PORT
+    serve(flask_app, host="0.0.0.0", port=WEBHOOK_PORT)
 
 
 async def main():
@@ -1538,16 +1561,16 @@ async def main():
     if not BOT_TOKEN or ":" not in BOT_TOKEN:
         raise SystemExit("LỖI: chưa có BOT_TOKEN hợp lệ. Vào Render > Environment điền BOT_TOKEN (lấy ở @BotFather).")
     if not ADMIN_IDS:
-        logging.warning("ADMIN_IDS đang trống -> không ai vào được /admin và không thể tự sao lưu. Điền ID dạng số (lấy ở @userinfobot).")
+        logging.warning("ADMIN_IDS đang trống -> không ai vào được /admin và không thể tự sao lưu.")
     if not SEPAY_API_KEY:
         logging.warning("SEPAY_API_KEY đang trống -> webhook nạp tiền tự động sẽ bị từ chối.")
     MAIN_LOOP = asyncio.get_running_loop()
     BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    BOT.session.middleware(TrackMW())      # bật theo dõi tin nhắn để tự xoá
+    BOT.session.middleware(TrackMW())
     dp = Dispatcher()
     dp.include_router(router)
     if AUTO_BACKUP and RESTORE_STATUS != "error":
-        dp.shutdown.register(final_backup)   # sao lưu lần cuối khi bot tắt
+        dp.shutdown.register(final_backup)
 
     threading.Thread(target=run_flask, daemon=True).start()
     if RESTORE_STATUS == "error":
