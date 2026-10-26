@@ -206,6 +206,11 @@ def is_admin(uid):
     return uid in ADMIN_IDS
 
 
+def admin_only(c: CallbackQuery):
+    """Bộ lọc: chỉ admin mới bấm được nút admin."""
+    return is_admin(c.from_user.id)
+
+
 # ---- cài đặt chung + KHUYẾN MÃI NẠP ----
 def get_setting(k, default=""):
     r = q1("SELECT v FROM settings WHERE k=?", (k,))
@@ -1335,10 +1340,6 @@ class BC(StatesGroup):
 
 class PM(StatesGroup):
     uid = State(); text = State()
-
-
-def admin_only(c: CallbackQuery):
-    return is_admin(c.from_user.id)
 
 
 @router.message(Command("admin"))
